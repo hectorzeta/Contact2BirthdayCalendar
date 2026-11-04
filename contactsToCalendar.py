@@ -8,6 +8,7 @@ import calendar
 import csv
 import datetime
 import sys
+import uuid
 
 DEFAULT_INPUT = 'contacts.csv'
 DEFAULT_CSV_OUTPUT = 'contacts_clean.csv'
@@ -28,56 +29,101 @@ def parse_full_date(value):
             continue
     raise ValueError(f"unsupported date: {value}")
 
+ICS_LINE_END = '\r\n'      # RFC 5545 requires CRLF line endings
+ICS_MAX_OCTETS = 75         # RFC 5545 limit for a content line, before folding
+
+def escape_ics_text(text):
+    """Escape a TEXT value as RFC 5545 requires (backslash, semicolon, comma, newline)."""
+    return (text.replace('\\', '\\\\')
+                .replace(';', '\\;')
+                .replace(',', '\\,')
+                .replace('\r\n', '\\n')
+                .replace('\n', '\\n'))
+
+def fold_ics_line(line):
+    """Split a content line into chunks of at most 75 octets (RFC 5545 section 3.1).
+
+    Continuation lines start with a single space. Splits never fall inside a
+    multi-byte UTF-8 character.
+    """
+    if len(line.encode('utf-8')) <= ICS_MAX_OCTETS:
+        return line
+    chunks, current, current_len = [], '', 0
+    limit = ICS_MAX_OCTETS
+    for char in line:
+        char_len = len(char.encode('utf-8'))
+        if current_len + char_len > limit:
+            chunks.append(current)
+            current, current_len = '', 0
+            limit = ICS_MAX_OCTETS - 1  # continuation lines carry a leading space
+        current += char
+        current_len += char_len
+    chunks.append(current)
+    return (ICS_LINE_END + ' ').join(chunks)
+
 def create_birthday_calendar(csv_file, ics_file):
     """Read birthdays from csv_file and write them as recurring events to ics_file."""
-    with open(ics_file, 'w', encoding='utf-8') as f:
-        # iCalendar file header: start of calendar, product ID, and format version
-        f.write("BEGIN:VCALENDAR\n")
-        f.write("PRODID:-//HZ//HZ//EN\n")
-        f.write("VERSION:2.0\n")
+    dtstamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    lines = [
+        "BEGIN:VCALENDAR",
+        "PRODID:-//HZ//HZ//EN",
+        "VERSION:2.0",
+        "CALSCALE:GREGORIAN",
+    ]
 
-        # utf-8-sig also strips the byte-order mark that some exports (e.g. Google) add
-        with open(csv_file, newline='', encoding='utf-8-sig') as file:
-            # Each row becomes a dict keyed by header names; fields are separated by ';'
-            reader = csv.DictReader(file,delimiter=";")
-            for row in reader:
-                # Skip rows without a birthday value
-                birthday = row.get('Birthday', '').strip()
-                if birthday:
-                    birth_date = ""
-                    birth_year = ""
-                    try:
-                        # Handle birthdays with no year (e.g., "--MM-DD")
-                        # Use the current year as a placeholder so the event has a valid start date;
-                        # RRULE below makes it repeat every year.
-                        if birthday.startswith('--'):
-                            month_day = birthday[2:]
-                            year = datetime.date.today().year
-                            # Feb 29 only exists in leap years, so use the next leap year as the
-                            # placeholder; the yearly RRULE then only fires in leap years.
-                            if month_day == '02-29':
-                                while not calendar.isleap(year):
-                                    year += 1
-                            birth_date = datetime.datetime.strptime(f"{year}-{month_day}", '%Y-%m-%d').date()
-                        else:
-                            # Handle birthdays with a year: "DD/MM/YYYY" or ISO "YYYY-MM-DD"
-                            birth_date = parse_full_date(birthday)
-                            # Append the birth year to the event title, e.g. " (1990)"
-                            birth_year = f" ({birth_date.year})"
-                        # Write one VEVENT block: start date, yearly recurrence, and title
-                        f.write("BEGIN:VEVENT\n")
-                        f.write(f"DTSTART:{birth_date.strftime('%Y%m%d')}\n")
-                        f.write("RRULE:FREQ=YEARLY\n")
-                        # Join only non-empty name parts so a missing last name leaves no double space
-                        name = ' '.join(p for p in (row.get('First Name') or '', row.get('Last Name') or '') if p)
-                        f.write(f"SUMMARY:Birthday: {name}{birth_year}\n")
-                        f.write("END:VEVENT\n")
-                    except ValueError:
-                        # strptime raises ValueError for malformed dates; report and skip the row
-                        print(f"Skipping invalid date: {birthday} for {row.get('First Name', '')} {row.get('Last Name', '')}")
+    # utf-8-sig also strips the byte-order mark that some exports (e.g. Google) add
+    with open(csv_file, newline='', encoding='utf-8-sig') as file:
+        # Each row becomes a dict keyed by header names; fields are separated by ';'
+        reader = csv.DictReader(file, delimiter=";")
+        for line_no, row in enumerate(reader, start=2):  # line 1 is the header
+            # Skip rows without a birthday value
+            birthday = (row.get('Birthday') or '').strip()
+            if not birthday:
+                continue
+            first = row.get('First Name') or ''
+            last = row.get('Last Name') or ''
+            try:
+                # Handle birthdays with no year (e.g., "--MM-DD")
+                # Use the current year as a placeholder so the event has a valid start date;
+                # RRULE below makes it repeat every year.
+                birth_year = ""
+                if birthday.startswith('--'):
+                    month_day = birthday[2:]
+                    year = datetime.date.today().year
+                    # Feb 29 only exists in leap years, so use the next leap year as the
+                    # placeholder; the yearly RRULE then only fires in leap years.
+                    if month_day == '02-29':
+                        while not calendar.isleap(year):
+                            year += 1
+                    birth_date = datetime.datetime.strptime(f"{year}-{month_day}", '%Y-%m-%d').date()
+                else:
+                    # Handle birthdays with a year: "DD/MM/YYYY" or ISO "YYYY-MM-DD"
+                    birth_date = parse_full_date(birthday)
+                    # Append the birth year to the event title, e.g. " (1990)"
+                    birth_year = f" ({birth_date.year})"
+            except ValueError:
+                # Malformed dates are reported and skipped
+                print(f"Skipping invalid date: {birthday} for {first} {last}")
+                continue
 
-        # Close the calendar block
-        f.write("END:VCALENDAR\n")
+            # Join only non-empty name parts so a missing last name leaves no double space
+            name = ' '.join(p for p in (first, last) if p)
+            # UID must be stable and unique: derived from the row position and its contents
+            uid = f"{uuid.uuid5(uuid.NAMESPACE_URL, f'{line_no}|{name}|{birthday}')}@contactsToCalendar"
+            lines += [
+                "BEGIN:VEVENT",
+                f"UID:{uid}",
+                f"DTSTAMP:{dtstamp}",
+                f"DTSTART;VALUE=DATE:{birth_date.strftime('%Y%m%d')}",
+                "RRULE:FREQ=YEARLY",
+                "SUMMARY:" + escape_ics_text(f"Birthday: {name}{birth_year}"),
+                "END:VEVENT",
+            ]
+
+    lines.append("END:VCALENDAR")
+    with open(ics_file, 'w', encoding='utf-8', newline='') as f:
+        for line in lines:
+            f.write(fold_ics_line(line) + ICS_LINE_END)
     print(f"Calendar file created: {ics_file}")
 
 def clean_contacts_csv(csv_file, output_file):

@@ -10,6 +10,7 @@ import calendar
 import csv
 import datetime
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -36,20 +37,43 @@ def read_clean_rows(path):
         return list(csv.DictReader(f, delimiter=';'))
 
 
+def read_ics_lines(path):
+    """Return the logical content lines of an .ics file.
+
+    Undoes RFC 5545 line folding (a CRLF followed by a space is a continuation)
+    and fails the test if any physical line ends in something other than CRLF.
+    """
+    with open(path, 'rb') as f:
+        raw = f.read()
+    assert raw.endswith(b'\r\n'), "ics file must end with CRLF"
+    assert b'\n' not in raw.replace(b'\r\n', b''), "bare LF found; RFC 5545 requires CRLF"
+    text = raw.decode('utf-8').replace('\r\n ', '')
+    return text.split('\r\n')[:-1]
+
+
+def unescape_ics_text(value):
+    """Undo RFC 5545 TEXT escapes in one pass, so '\\\\,' is read correctly."""
+    mapping = {'n': '\n', 'N': '\n', ',': ',', ';': ';', '\\': '\\'}
+    return re.sub(r'\\(.)', lambda m: mapping.get(m.group(1), m.group(1)), value)
+
+
 def parse_ics_events(path):
-    """Return a list of dicts, one per VEVENT, with DTSTART/RRULE/SUMMARY."""
+    """Return a list of dicts, one per VEVENT.
+
+    Keys are property names without parameters, so 'DTSTART;VALUE=DATE:x'
+    is stored under 'DTSTART'. Values have RFC 5545 escapes undone.
+    """
     events, current = [], None
-    with open(path, encoding='utf-8') as f:
-        for line in f:
-            line = line.rstrip('\n')
-            if line == 'BEGIN:VEVENT':
-                current = {}
-            elif line == 'END:VEVENT':
-                events.append(current)
-                current = None
-            elif current is not None and ':' in line:
-                key, value = line.split(':', 1)
-                current[key] = value
+    for line in read_ics_lines(path):
+        if line == 'BEGIN:VEVENT':
+            current = {}
+        elif line == 'END:VEVENT':
+            events.append(current)
+            current = None
+        elif current is not None and ':' in line:
+            key, value = line.split(':', 1)
+            key = key.split(';')[0]
+            current[key] = unescape_ics_text(value)
     return events
 
 
@@ -115,8 +139,7 @@ class IcsExampleTests(ScratchMixin, unittest.TestCase):
         self.events = parse_ics_events(self.out)
 
     def test_calendar_wrapper_is_present(self):
-        with open(self.out, encoding='utf-8') as f:
-            lines = f.read().splitlines()
+        lines = read_ics_lines(self.out)
         self.assertEqual(lines[0], 'BEGIN:VCALENDAR')
         self.assertEqual(lines[-1], 'END:VCALENDAR')
 
@@ -236,10 +259,75 @@ class IcsRuleTests(ScratchMixin, unittest.TestCase):
         csv_path = self.write_csv('in.csv', self.HDR)
         with mock.patch('builtins.print'):
             cal.create_birthday_calendar(csv_path, out)
-        with open(out, encoding='utf-8') as f:
-            self.assertEqual(f.read().splitlines(),
-                             ['BEGIN:VCALENDAR', 'PRODID:-//HZ//HZ//EN', 'VERSION:2.0',
-                              'END:VCALENDAR'])
+        self.assertEqual(read_ics_lines(out),
+                         ['BEGIN:VCALENDAR', 'PRODID:-//HZ//HZ//EN', 'VERSION:2.0',
+                          'CALSCALE:GREGORIAN', 'END:VCALENDAR'])
+
+
+class IcsValidityTests(ScratchMixin, unittest.TestCase):
+    """Checks against RFC 5545 requirements for the generated calendar file."""
+
+    HDR = 'First Name;Middle Name;Last Name;Birthday\n'
+
+    def make_ics(self, body):
+        csv_path = self.write_csv('in.csv', self.HDR + body)
+        out = os.path.join(self.tmp, 'out.ics')
+        with mock.patch('builtins.print'):
+            cal.create_birthday_calendar(csv_path, out)
+        return out
+
+    def test_file_uses_crlf_line_endings_only(self):
+        out = self.make_ics('Ann;;Lee;1990-01-02\n')
+        with open(out, 'rb') as f:
+            raw = f.read()
+        self.assertTrue(raw.endswith(b'\r\n'))
+        self.assertEqual(raw.count(b'\n'), raw.count(b'\r\n'))
+
+    def test_every_event_has_required_uid_and_dtstamp(self):
+        out = self.make_ics('Ann;;Lee;1990-01-02\nBob;;Ray;--07-04\n')
+        events = parse_ics_events(out)
+        self.assertEqual(len(events), 2)
+        for event in events:
+            self.assertIn('UID', event)
+            self.assertIn('DTSTAMP', event)
+
+    def test_uids_are_unique(self):
+        out = self.make_ics('Ann;;Lee;1990-01-02\nAnn;;Lee;1990-01-02\n')
+        uids = [e['UID'] for e in parse_ics_events(out)]
+        self.assertEqual(len(set(uids)), 2)
+
+    def test_dtstamp_is_utc_format(self):
+        out = self.make_ics('Ann;;Lee;1990-01-02\n')
+        stamp = parse_ics_events(out)[0]['DTSTAMP']
+        self.assertRegex(stamp, r'^\d{8}T\d{6}Z$')
+
+    def test_dtstart_is_declared_as_a_date(self):
+        out = self.make_ics('Ann;;Lee;1990-01-02\n')
+        lines = read_ics_lines(out)
+        self.assertIn('DTSTART;VALUE=DATE:19900102', lines)
+
+    def test_summary_escapes_comma_and_semicolon(self):
+        out = self.make_ics('Ann;Q;Smith, Jr;01/02/1990\n')
+        summary = parse_ics_events(out)[0]['SUMMARY']
+        # Titles use first and last name only; the middle name is not shown
+        self.assertEqual(summary, 'Birthday: Ann Smith, Jr (1990)')
+        raw_line = next(l for l in read_ics_lines(out) if l.startswith('SUMMARY'))
+        self.assertIn('Smith\\, Jr', raw_line)
+
+    def test_long_summary_is_folded_to_75_octets(self):
+        long_name = 'Ünïcødé' * 10
+        out = self.make_ics(f'{long_name};;Zed;01/02/1990\n')
+        with open(out, 'rb') as f:
+            physical = f.read().split(b'\r\n')
+        for line in physical:
+            self.assertLessEqual(len(line), 75, line)
+        # Folding must not break a UTF-8 character: the file must decode cleanly
+        self.assertIn(long_name, parse_ics_events(out)[0]['SUMMARY'])
+
+    def test_unescape_handles_escaped_backslash_before_comma(self):
+        # Input text "a\b,c" escapes to "a\\b\,c" and must read back unchanged
+        self.assertEqual(cal.escape_ics_text('a\\b,c'), 'a\\\\b\\,c')
+        self.assertEqual(unescape_ics_text('a\\\\b\\,c'), 'a\\b,c')
 
 
 class CleanCsvRuleTests(ScratchMixin, unittest.TestCase):
