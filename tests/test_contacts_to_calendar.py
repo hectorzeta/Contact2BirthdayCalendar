@@ -381,10 +381,12 @@ class CommandLineTests(ScratchMixin, unittest.TestCase):
         for option in ('--input', '--csv', '--ics'):
             self.assertIn(option, result.stdout)
 
-    def test_no_options_prints_a_hint_and_exits_one(self):
+    def test_no_options_defaults_to_ics(self):
         result = self.run_script('-i', EXAMPLE_CSV)
-        self.assertEqual(result.returncode, 1)
-        self.assertIn('Nothing to do', result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(os.path.exists(os.path.join(self.tmp, 'birthdays.ics')))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, 'contacts_clean.csv')))
+        self.assertEqual(len(parse_ics_events(os.path.join(self.tmp, 'birthdays.ics'))), 4)
 
     def test_missing_input_file_exits_one_with_message(self):
         result = self.run_script('-i', os.path.join(self.tmp, 'nope.csv'), '--ics')

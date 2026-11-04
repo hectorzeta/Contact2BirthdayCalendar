@@ -28,7 +28,7 @@ Requires Python 3 (standard library only, no packages to install).
 2. Choose what to generate:
 
    ```bash
-   # Birthday calendar (writes birthdays.ics)
+   # Birthday calendar (writes birthdays.ics); running with no options does the same
    python3 contactsToCalendar.py --ics
 
    # Cleaned CSV with only First Name, Middle Name, Last Name and Birthday (writes contacts_clean.csv)
@@ -46,7 +46,7 @@ Run `python3 contactsToCalendar.py --help` for all options:
 |---|---|
 | `-i`, `--input FILE` | Contacts CSV to read (default `contacts.csv`) |
 | `--csv [FILE]` | Write a cleaned CSV, dropping empty rows (default `contacts_clean.csv`) |
-| `--ics [FILE]` | Write a birthday calendar (default `birthdays.ics`) |
+| `--ics [FILE]` | Write a birthday calendar (default `birthdays.ics`). This is also the output when neither `--csv` nor `--ics` is given. |
 
 ### Tests
 

@@ -159,6 +159,7 @@ def parse_args(argv=None):
         description="Work with a contacts CSV: write a cleaned CSV and/or a birthday calendar (.ics).",
         epilog=(
             "Examples:\n"
+            "  python3 contactsToCalendar.py            (same as --ics)\n"
             "  python3 contactsToCalendar.py --ics\n"
             "  python3 contactsToCalendar.py --csv --ics\n"
             "  python3 contactsToCalendar.py -i my_contacts.csv --csv cleaned.csv --ics out.ics\n"
@@ -177,7 +178,8 @@ def parse_args(argv=None):
     parser.add_argument(
         '--ics', nargs='?', const=DEFAULT_ICS_OUTPUT, metavar='FILE',
         help=("generate an iCalendar file of yearly recurring birthday events "
-              f"(default output: {DEFAULT_ICS_OUTPUT})"),
+              f"(default output: {DEFAULT_ICS_OUTPUT}). This is the default "
+              "when neither --csv nor --ics is given."),
     )
     return parser.parse_args(argv)
 
@@ -185,9 +187,9 @@ def main(argv=None):
     """Entry point: run the requested outputs and return an exit code."""
     args = parse_args(argv)
 
+    # With no output option, default to the calendar file
     if args.csv is None and args.ics is None:
-        print("Nothing to do: choose --csv, --ics, or both. Use --help for details.", file=sys.stderr)
-        return 1
+        args.ics = DEFAULT_ICS_OUTPUT
 
     try:
         if args.csv is not None:
