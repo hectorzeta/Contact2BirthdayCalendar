@@ -1,0 +1,13 @@
+# Personal data: contacts and generated calendars (do not push to a public repo)
+contacts.csv
+contacts_clean.csv
+birthdays.ics
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Local Claude Code configuration and installed skills
+.claude/
+# Generated test reports
+tests/reports/

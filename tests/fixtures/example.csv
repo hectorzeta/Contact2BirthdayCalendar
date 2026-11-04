@@ -1,0 +1,9 @@
+﻿First Name;Middle Name;Last Name;Phonetic First Name;Phonetic Middle Name;Phonetic Last Name;Name Prefix;Name Suffix;Nickname;File As;Organization Name;Organization Title;Organization Department;Birthday;Notes;Photo;Labels;E-mail 1 - Label;E-mail 1 - Value;E-mail 2 - Label;E-mail 2 - Value;E-mail 3 - Label;E-mail 3 - Value;E-mail 4 - Label;E-mail 4 - Value;Phone 1 - Label;Phone 1 - Value;Phone 2 - Label;Phone 2 - Value;Phone 3 - Label;Phone 3 - Value;Phone 4 - Label;Phone 4 - Value;Address 1 - Label;Address 1 - Formatted;Address 1 - Street;Address 1 - City;Address 1 - PO Box;Address 1 - Region;Address 1 - Postal Code;Address 1 - Country;Address 1 - Extended Address;Address 2 - Label;Address 2 - Formatted;Address 2 - Street;Address 2 - City;Address 2 - PO Box;Address 2 - Region;Address 2 - Postal Code;Address 2 - Country;Address 2 - Extended Address;Relation 1 - Label;Relation 1 - Value;Relation 2 - Label;Relation 2 - Value;Relation 3 - Label;Relation 3 - Value;Relation 4 - Label;Relation 4 - Value;Relation 5 - Label;Relation 5 - Value;Website 1 - Label;Website 1 - Value;Event 1 - Label;Event 1 - Value
+;;;;;;;;;;ACME;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Robert;;Dalton;;;;Dr.;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+John;;Do;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Margaret;;;;;;;;;;;;;1931-03-31;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Anniversary;2026-08-21
+Alexandra;;Miller;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Bertha;;Morris;;;;;;;;Moster Inc;;; --01-01;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Leo;;Schmidt;;;;;;;;;;;2000-02-29;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+Lily;;Foster;;;;;;;;;;;--02-29;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
