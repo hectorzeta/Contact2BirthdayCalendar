@@ -6,7 +6,7 @@ Small utility scripts for HZA.
 
 Converts a contacts export into a calendar file of yearly recurring birthday events.
 
-It reads a semicolon-delimited CSV with `First Name`, `Last Name` and `Birthday` columns, and writes an iCalendar (`.ics`) file that most calendar apps (Google Calendar, Apple Calendar, Outlook) can import.
+It reads a CSV (separator detected: `;`, `,` or tab) with `First Name`, `Last Name` and `Birthday` columns, and writes an iCalendar (`.ics`) file that most calendar apps (Google Calendar, Apple Calendar, Outlook) can import.
 
 ### Motivation
 
@@ -64,11 +64,14 @@ Requires Python 3 (standard library only, no packages to install).
 
 With `--calendar`, `birthdays_new.ics` holds only the birthdays that are not already in the exported calendar (matched by name, year and month and day). Importing it avoids duplicate birthday events. `birthdays.ics` still holds every birthday.
 
+The column separator is detected automatically from the header line (`;`, `,` or tab). To set it yourself, use `--delimiter`, for example `python3 contactsToCalendar.py --delimiter tab --ics`.
+
 Run `python3 contactsToCalendar.py --help` for all options:
 
 | Option | Meaning |
 |---|---|
 | `-i`, `--input FILE` | Contacts CSV to read (default `contacts.csv`) |
+| `--delimiter VALUE` | Column separator of the input (`;`, `,` or `tab`). Detected from the file when omitted. |
 | `--csv [FILE]` | Write a cleaned CSV, dropping empty rows (default `contacts_clean.csv`) |
 | `--ics [FILE]` | Write a birthday calendar (default `birthdays.ics`). This is also the output when neither `--csv` nor `--ics` is given. |
 | `--calendar FILE` | Exported calendar (`.ics`) to compare against. Also writes `birthdays_new.ics`, the birthdays not already in that calendar. |

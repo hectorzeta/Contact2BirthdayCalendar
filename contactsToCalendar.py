@@ -1,4 +1,4 @@
-# Converts a semicolon-delimited contacts CSV (with a "Birthday" column) into
+# Converts a contacts CSV (with a "Birthday" column) into
 # an iCalendar (.ics) file containing yearly recurring birthday events, and can
 # also produce a cleaned CSV that keeps only the name and birthday columns.
 #
@@ -16,6 +16,9 @@ DEFAULT_INPUT = 'contacts.csv'
 DEFAULT_CSV_OUTPUT = 'contacts_clean.csv'
 DEFAULT_ICS_OUTPUT = 'birthdays.ics'
 NEW_ICS_OUTPUT = 'birthdays_new.ics'  # written with --calendar; not configurable
+
+# Accepted --delimiter values (matched case-insensitively) and the separator each one means
+DELIMITER_CHOICES = {';': ';', ',': ',', 'tab': '\t'}
 
 # Date formats accepted for birthdays that include a year
 FULL_DATE_FORMATS = ('%d/%m/%Y', '%Y-%m-%d')
@@ -98,16 +101,40 @@ def parse_birthday(birthday):
     birth_date = parse_full_date(birthday)
     return birth_date, birth_date.year
 
-def build_birthday_events(csv_file):
+def detect_delimiter(path):
+    """Return the column separator (';', ',' or tab) of the CSV file at path.
+
+    The first line is split with each candidate using the csv module. Only
+    candidates that give more than one column are kept, and the one with the
+    most columns is returned. Raises ValueError if no candidate gives more than
+    one column, or if two or more tie for the most columns.
+    """
+    with open(path, encoding='utf-8-sig', newline='') as f:
+        line = f.readline().rstrip('\r\n')
+    column_counts = {}
+    for candidate in (';', ',', '\t'):
+        fields = next(csv.reader([line], delimiter=candidate))
+        if len(fields) > 1:
+            column_counts[candidate] = len(fields)
+    if not column_counts:
+        raise ValueError(f"could not detect the column separator in {path}; use --delimiter")
+    most = max(column_counts.values())
+    best = [candidate for candidate, count in column_counts.items() if count == most]
+    if len(best) > 1:
+        raise ValueError(f"ambiguous column separator in {path}; use --delimiter")
+    return best[0]
+
+def build_birthday_events(csv_file, delimiter=';'):
     """Read birthdays from csv_file and return a list of BirthdayEvent records.
 
-    Rows without a birthday are skipped. Malformed dates are reported and skipped.
+    delimiter is the column separator of csv_file. Rows without a birthday are
+    skipped. Malformed dates are reported and skipped.
     """
     events = []
     # utf-8-sig also strips the byte-order mark that some exports (e.g. Google) add
     with open(csv_file, newline='', encoding='utf-8-sig') as file:
-        # Each row becomes a dict keyed by header names; fields are separated by ';'
-        reader = csv.DictReader(file, delimiter=";")
+        # Each row becomes a dict keyed by header names
+        reader = csv.DictReader(file, delimiter=delimiter)
         for line_no, row in enumerate(reader, start=2):  # line 1 is the header
             # Skip rows without a birthday value
             birthday = (row.get('Birthday') or '').strip()
@@ -306,17 +333,23 @@ def make_dtstamp():
     """Return the current UTC time in the YYYYMMDDTHHMMSSZ form used for DTSTAMP."""
     return datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
 
-def create_birthday_calendar(csv_file, ics_file):
-    """Read birthdays from csv_file and write them as recurring events to ics_file."""
+def create_birthday_calendar(csv_file, ics_file, delimiter=None):
+    """Read birthdays from csv_file and write them as recurring events to ics_file.
+
+    The column separator is detected from csv_file when delimiter is None.
+    """
+    if delimiter is None:
+        delimiter = detect_delimiter(csv_file)
     dtstamp = make_dtstamp()
-    events = build_birthday_events(csv_file)
+    events = build_birthday_events(csv_file, delimiter=delimiter)
     write_calendar(events, ics_file, dtstamp)
     print(f"Calendar file created: {ics_file}")
 
-def clean_contacts_csv(csv_file, output_file):
+def clean_contacts_csv(csv_file, output_file, delimiter=';'):
     """Keep only the name and birthday columns from csv_file and drop empty rows.
 
-    Writes the result to output_file as a semicolon-delimited CSV.
+    delimiter is the column separator of csv_file. Writes the result to
+    output_file using the same separator.
     Returns the number of rows written.
     """
     keep_columns = ['First Name', 'Middle Name', 'Last Name', 'Birthday']
@@ -324,8 +357,8 @@ def clean_contacts_csv(csv_file, output_file):
 
     with open(csv_file, newline='', encoding='utf-8-sig') as infile, \
          open(output_file, 'w', newline='', encoding='utf-8') as outfile:
-        reader = csv.DictReader(infile, delimiter=";")
-        writer = csv.DictWriter(outfile, fieldnames=keep_columns, delimiter=";")
+        reader = csv.DictReader(infile, delimiter=delimiter)
+        writer = csv.DictWriter(outfile, fieldnames=keep_columns, delimiter=delimiter)
         writer.writeheader()
 
         for row in reader:
@@ -339,6 +372,14 @@ def clean_contacts_csv(csv_file, output_file):
 
     print(f"Cleaned contacts file created: {output_file} ({rows_written} rows)")
     return rows_written
+
+def parse_delimiter(value):
+    """Map a --delimiter value to its separator character, or reject it."""
+    key = value.lower()
+    if key not in DELIMITER_CHOICES:
+        raise argparse.ArgumentTypeError(
+            f"invalid delimiter: {value!r} (choose ';', ',' or tab)")
+    return DELIMITER_CHOICES[key]
 
 def parse_args(argv=None):
     """Define and parse the command-line options."""
@@ -356,7 +397,13 @@ def parse_args(argv=None):
     )
     parser.add_argument(
         '-i', '--input', default=DEFAULT_INPUT, metavar='FILE',
-        help=f"semicolon-delimited contacts CSV to read (default: {DEFAULT_INPUT})",
+        help=(f"contacts CSV to read; separator detected (';', ',' or tab) unless "
+              f"--delimiter is given (default: {DEFAULT_INPUT})"),
+    )
+    parser.add_argument(
+        '--delimiter', type=parse_delimiter, default=None, metavar='VALUE',
+        help=("column separator of the input: ';', ',' or tab. "
+              "Detected from the file when omitted"),
     )
     parser.add_argument(
         '--csv', nargs='?', const=DEFAULT_CSV_OUTPUT, metavar='FILE',
@@ -394,13 +441,23 @@ def main(argv=None):
             print(f"Error: calendar file not found: {err.filename}", file=sys.stderr)
             return 1
 
+    # Resolve the column separator before writing anything, so a bad input leaves no output
+    try:
+        delimiter = args.delimiter if args.delimiter is not None else detect_delimiter(args.input)
+    except FileNotFoundError as err:
+        print(f"Error: input file not found: {err.filename}", file=sys.stderr)
+        return 1
+    except ValueError as err:
+        print(f"Error: {err}", file=sys.stderr)
+        return 1
+
     try:
         if args.csv is not None:
-            clean_contacts_csv(args.input, args.csv)
+            clean_contacts_csv(args.input, args.csv, delimiter=delimiter)
         if args.calendar is not None:
             # Build the events once so birthdays.ics and birthdays_new.ics come from the same list
             dtstamp = make_dtstamp()
-            events = build_birthday_events(args.input)
+            events = build_birthday_events(args.input, delimiter=delimiter)
             ics_file = args.ics or DEFAULT_ICS_OUTPUT
             write_calendar(events, ics_file, dtstamp)
             print(f"Calendar file created: {ics_file}")
@@ -409,7 +466,7 @@ def main(argv=None):
             print(f"Calendar file created: {NEW_ICS_OUTPUT} "
                   f"({len(new_events)} new, {matched_count} already in calendar)")
         elif args.ics is not None:
-            create_birthday_calendar(args.input, args.ics)
+            create_birthday_calendar(args.input, args.ics, delimiter=delimiter)
     except FileNotFoundError as err:
         print(f"Error: input file not found: {err.filename}", file=sys.stderr)
         return 1

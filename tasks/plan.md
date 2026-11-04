@@ -67,3 +67,61 @@ When `--calendar FILE` is given, the tool writes `birthdays_new.ics` containing 
 ## Open Questions
 
 None. Spec decisions are recorded in `docs/SPEC.md` under "Decisions".
+
+
+---
+
+# Implementation Plan: Column separators (issue #4)
+
+Branch: `feature/other-csv-separators` (from `main`)
+Spec: `docs/SPEC.md`, sections "Input", "Column separator", "Cleaned CSV output", "Command line"
+Task list: `tasks/todo.md` (section "Column separators (issue #4)")
+
+## Overview
+
+The contacts input may use `;`, `,` or tab as its column separator. The tool detects it from the header line, or the user sets it with `--delimiter`. The cleaned CSV keeps the input's separator. The `--calendar` export is not affected.
+
+## Architecture Decisions
+
+- **Detection is one function, `detect_delimiter(path)`.** It reads the first line with `utf-8-sig`, splits it with each candidate, and returns the one with the most columns. It raises `ValueError` with the spec's message for "could not detect" and "ambiguous", so `main` only has to print and exit.
+- **The separator is resolved once in `main`.** Either `--delimiter` or `detect_delimiter` is called, and the result is passed to `build_birthday_events` and `clean_contacts_csv`. Both get a `delimiter=';'` default, so existing calls and tests keep working.
+- **`--delimiter` maps names to characters in one place.** `tab` becomes `\t`. argparse `choices` rejects other values with exit code 2.
+- **No new dependencies.** Standard library `csv` only.
+
+## Task List
+
+### Phase 1: Detection and option
+
+- [x] Task 7: `detect_delimiter(path)` and its error messages
+- [x] Task 8: `--delimiter` option and the value mapping
+
+### Checkpoint: Detection ready
+- [x] Tasks 7–8 tests pass, ruff passes
+
+### Phase 2: Use the separator
+
+- [x] Task 9: Pass the separator through `build_birthday_events` and `clean_contacts_csv`; resolve it in `main`
+
+### Checkpoint: Feature complete
+- [x] Every success criterion in the spec has a passing test
+- [x] Comma and tab copies of `example.csv` give the same calendar as the semicolon version
+
+### Phase 3: Docs
+
+- [x] Task 10: README options table and usage for `--delimiter`
+
+### Checkpoint: Ready for PR
+- [x] `ruff check .` and the full suite pass
+- [ ] Diff reviewed against `docs/SPEC.md`
+
+## Risks and Mitigations
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| A tab or comma appears inside a quoted header name, which confuses detection | Medium | Detection splits the header with the `csv` module, so quoted fields are respected |
+| Changing `clean_contacts_csv` changes the default output | High | The default stays `;`; a test checks a semicolon input gives byte-identical output to the current version |
+| Existing calls to `build_birthday_events` and `clean_contacts_csv` break | Medium | New parameter has a default of `';'`; existing tests stay unchanged |
+
+## Open Questions
+
+None.
