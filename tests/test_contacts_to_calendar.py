@@ -101,7 +101,7 @@ class CleanCsvExampleTests(ScratchMixin, unittest.TestCase):
         # example.csv starts with a UTF-8 BOM; the first column must still be found.
         first_names = [r['First Name'] for r in read_clean_rows(self.out)]
         self.assertEqual(first_names,
-                         ['A', 'Alice', 'Granma', 'Alexandra', 'Bertha', 'LeapYear', 'LeapNo'])
+                         ['Robert', 'John', 'Margaret', 'Alexandra', 'Bertha', 'Leo', 'Lily'])
 
 
 class IcsExampleTests(ScratchMixin, unittest.TestCase):
@@ -127,36 +127,36 @@ class IcsExampleTests(ScratchMixin, unittest.TestCase):
         return matches[0]
 
     def test_example_has_four_usable_birthdays(self):
-        # Bertha ("--01-01"), Granma (ISO "1931-03-31"), and the two Feb 29 rows
-        # ("2000-02-29" and "--02-29"). Alice, Dalas, A and Alexandra have no
+        # Bertha ("--01-01"), Margaret (ISO "1931-03-31"), and the two Feb 29 rows
+        # ("2000-02-29" and "--02-29"). Robert, John and Alexandra have no
         # birthday; the ACME row is not a contact.
         self.assertEqual(len(self.events), 4)
 
     def test_feb_29_with_year_is_on_that_exact_date(self):
-        event = self.event('Birthday: LeapYear WithYear (2000)')
+        event = self.event('Birthday: Leo Schmidt (2000)')
         self.assertEqual(event['DTSTART'], '20000229')
         self.assertEqual(event['RRULE'], 'FREQ=YEARLY')
 
     def test_feb_29_without_year_uses_a_leap_year_placeholder(self):
-        event = self.event('Birthday: LeapNo YearDay')
+        event = self.event('Birthday: Lily Foster')
         self.assertEqual(event['DTSTART'][4:], '0229')
         start_year = int(event['DTSTART'][:4])
         self.assertTrue(calendar.isleap(start_year))
         self.assertGreaterEqual(start_year, datetime.date.today().year)
 
     def test_bertha_event_is_yearly_on_january_first(self):
-        event = self.event('Birthday: Bertha Mars')
+        event = self.event('Birthday: Bertha Morris')
         self.assertEqual(event['RRULE'], 'FREQ=YEARLY')
         self.assertEqual(event['DTSTART'][4:], '0101')
 
     def test_bertha_event_title_has_no_year(self):
         # "--MM-DD" birthdays do not include a year, so none is added to the title.
-        self.event('Birthday: Bertha Mars')  # exact title match, no "(year)" suffix
+        self.event('Birthday: Bertha Morris')  # exact title match, no "(year)" suffix
 
     def test_iso_date_birthday_is_supported(self):
-        # Granma has "1931-03-31" (ISO format) and no last name.
-        granma = self.event('Birthday: Granma (1931)')
-        self.assertEqual(granma['DTSTART'], '19310331')
+        # Margaret has "1931-03-31" (ISO format) and no last name.
+        margaret = self.event('Birthday: Margaret (1931)')
+        self.assertEqual(margaret['DTSTART'], '19310331')
 
 
 class IcsRuleTests(ScratchMixin, unittest.TestCase):
@@ -228,7 +228,7 @@ class IcsRuleTests(ScratchMixin, unittest.TestCase):
         self.assertEqual(events, [])
 
     def test_surrounding_spaces_in_birthday_are_ignored(self):
-        events, _ = self.run_ics('Bertha;;Mars;  --01-01  \n')
+        events, _ = self.run_ics('Bertha;;Morris;  --01-01  \n')
         self.assertEqual(len(events), 1)
 
     def test_calendar_is_valid_when_there_are_no_events(self):

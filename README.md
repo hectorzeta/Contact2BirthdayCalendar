@@ -53,14 +53,22 @@ Run `python3 contactsToCalendar.py --help` for all options:
 The tests use only the Python standard library. Run them from the project folder:
 
 ```bash
+# Run the tests and write an HTML report (tests/reports/test-report.html)
+python3 tests/run_tests.py
+
+# Or just run them with unittest's plain output
 python3 -m unittest discover -s tests -v
 ```
+
+`run_tests.py` exits with `0` when everything passes and `1` otherwise. Use `-o FILE` to choose another report file, and `-q` to hide the per-test output.
 
 The tests live in `tests/`:
 
 | Path | Purpose |
 |---|---|
 | `tests/test_contacts_to_calendar.py` | All test cases |
+| `tests/run_tests.py` | Runs the tests and writes the HTML report |
+| `tests/reports/` | Generated reports (not committed) |
 | `tests/fixtures/example.csv` | Sample Google Contacts export used as test input |
 | `tests/expected/clean_example.csv` | Expected output of `--csv` for the sample file |
 
