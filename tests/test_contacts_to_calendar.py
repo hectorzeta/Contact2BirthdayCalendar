@@ -875,7 +875,7 @@ class DelimiterDetectionTests(ScratchMixin, unittest.TestCase):
         self.assertIn('could not detect the column separator', str(ctx.exception))
 
     def test_tie_for_most_columns_raises_ambiguous(self):
-        path = self.write_csv('contacts.csv', 'a;b,c\n')
+        path = self.write_csv('contacts.csv', 'Birthday;Name,Birthday\n')
         with self.assertRaises(ValueError) as ctx:
             cal.detect_delimiter(path)
         self.assertIn('ambiguous column separator', str(ctx.exception))
@@ -893,6 +893,29 @@ class DelimiterDetectionTests(ScratchMixin, unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             cal.detect_delimiter(path)
         self.assertIn(f'in {path}; use --delimiter', str(ctx.exception))
+
+    def test_quoted_header_with_commas_gives_semicolon(self):
+        # Read as comma-separated this header has 4 fields, but no field is Birthday
+        path = self.write_csv('contacts.csv', 'First Name;"Last, First, Middle, Suffix";Birthday\n')
+        self.assertEqual(cal.detect_delimiter(path), ';')
+
+    def test_comma_header_with_birthday_gives_comma(self):
+        path = self.write_csv('contacts.csv', 'First Name,Last Name,Birthday\n')
+        self.assertEqual(cal.detect_delimiter(path), ',')
+
+    def test_header_without_birthday_raises_could_not_detect(self):
+        # ';' gives 3 columns, but none is Birthday, so no candidate is kept
+        path = self.write_csv('contacts.csv', 'Name;Surname;Date\n')
+        with self.assertRaises(ValueError) as ctx:
+            cal.detect_delimiter(path)
+        self.assertIn('could not detect the column separator', str(ctx.exception))
+
+    def test_two_separators_with_birthday_tie_raises_ambiguous(self):
+        # ';' gives ['Birthday', 'Name,Birthday'] and ',' gives ['Birthday;Name', 'Birthday']: 2 columns each
+        path = self.write_csv('contacts.csv', 'Birthday;Name,Birthday\n')
+        with self.assertRaises(ValueError) as ctx:
+            cal.detect_delimiter(path)
+        self.assertIn('ambiguous column separator', str(ctx.exception))
 
 
 class DelimiterOptionTests(ScratchMixin, unittest.TestCase):
@@ -1011,7 +1034,7 @@ class SeparatorTests(ScratchMixin, unittest.TestCase):
         self.assertFalse(os.path.exists(ics_out))
 
     def test_ambiguous_separator_exits_one_and_writes_nothing(self):
-        path = self.write_csv('contacts.csv', 'First Name;Last Name,Birthday\nAnn;Lee,1990-05-01\n')
+        path = self.write_csv('contacts.csv', 'Birthday;Name,Birthday\nAnn;Lee,1990-05-01\n')
         csv_out = os.path.join(self.tmp, 'clean.csv')
         ics_out = os.path.join(self.tmp, 'birthdays.ics')
         result = self.run_script('-i', path, '--csv', csv_out, '--ics', ics_out)
@@ -1021,7 +1044,7 @@ class SeparatorTests(ScratchMixin, unittest.TestCase):
         self.assertFalse(os.path.exists(ics_out))
 
     def test_ambiguous_separator_writes_nothing_with_calendar_export(self):
-        path = self.write_csv('contacts.csv', 'First Name;Last Name,Birthday\nAnn;Lee,1990-05-01\n')
+        path = self.write_csv('contacts.csv', 'Birthday;Name,Birthday\nAnn;Lee,1990-05-01\n')
         csv_out = os.path.join(self.tmp, 'clean.csv')
         result = self.run_script('-i', path, '--calendar', os.path.join(FIXTURES, 'export.ics'),
                                  '--csv', csv_out)

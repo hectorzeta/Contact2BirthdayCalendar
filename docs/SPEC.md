@@ -23,8 +23,8 @@ The separator applies to the contacts input (`-i`) only. The calendar export rea
 
 1. Read the first line (the header) of the input, after removing any byte-order mark.
 2. Split that line with each candidate separator (`;`, `,`, tab) using the `csv` module.
-3. Keep the candidates that give more than one column.
-4. If no candidate gives more than one column, stop with `Error: could not detect the column separator in <file>; use --delimiter` on stderr, exit code 1.
+3. Keep the candidates that give more than one column and whose split header has a column named `Birthday` (spaces around the name are ignored, case-insensitive).
+4. If no candidate is kept, stop with `Error: could not detect the column separator in <file>; use --delimiter` on stderr, exit code 1.
 5. If one candidate gives more columns than every other, use it.
 6. If two or more candidates tie for the most columns, stop with `Error: ambiguous column separator in <file>; use --delimiter` on stderr, exit code 1.
 
@@ -43,6 +43,7 @@ The separator applies to the contacts input (`-i`) only. The calendar export rea
 - A semicolon-separated input produces a cleaned CSV that is byte-identical to the current output (apart from the usual `csv` quoting, which is unchanged).
 - A comma-separated input produces a cleaned CSV that uses `,` as the separator.
 - `--delimiter` overrides detection: a file whose detection would be ambiguous is read correctly when `--delimiter` is given.
+- A header with quoted fields, `First Name;"Last, First, Middle, Suffix";Birthday`, is detected as `;`.
 - A file with no detectable separator exits with code 1 and the message in the spec.
 - An ambiguous file exits with code 1 and the message in the spec.
 - An invalid `--delimiter` value exits with code 2.

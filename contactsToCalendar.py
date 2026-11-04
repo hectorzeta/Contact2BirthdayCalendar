@@ -105,16 +105,18 @@ def detect_delimiter(path):
     """Return the column separator (';', ',' or tab) of the CSV file at path.
 
     The first line is split with each candidate using the csv module. Only
-    candidates that give more than one column are kept, and the one with the
-    most columns is returned. Raises ValueError if no candidate gives more than
-    one column, or if two or more tie for the most columns.
+    candidates that give more than one column and whose header has a Birthday
+    column (spaces ignored, case-insensitive) are kept, and the one with the
+    most columns is returned. Raises ValueError if no candidate is kept, or if
+    two or more tie for the most columns.
     """
     with open(path, encoding='utf-8-sig', newline='') as f:
         line = f.readline().rstrip('\r\n')
     column_counts = {}
     for candidate in (';', ',', '\t'):
         fields = next(csv.reader([line], delimiter=candidate))
-        if len(fields) > 1:
+        has_birthday = any(field.strip().lower() == 'birthday' for field in fields)
+        if len(fields) > 1 and has_birthday:
             column_counts[candidate] = len(fields)
     if not column_counts:
         raise ValueError(f"could not detect the column separator in {path}; use --delimiter")
