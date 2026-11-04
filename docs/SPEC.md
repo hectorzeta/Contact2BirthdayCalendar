@@ -13,7 +13,10 @@ A standard-library Python tool that turns a semicolon-delimited contacts CSV (Go
 - CSV with a header row. The column separator is `;`, `,` or tab (see [Column separator](#column-separator)).
 - Read with `utf-8-sig`, so a byte-order mark from exports is handled.
 - Relevant columns: `First Name`, `Middle Name`, `Last Name`, `Birthday`. Other columns are ignored.
-- A missing column is treated as empty.
+- A missing column is treated as empty, and a warning is printed to stderr for the expected columns (see below).
+  - The header is checked once per run for `First Name`, `Last Name` and `Birthday`.
+  - For each missing column the message is `Warning: column '<name>' not found in <file>; its values will be empty`.
+  - The run continues and the exit code is not changed.
 
 ## Column separator
 

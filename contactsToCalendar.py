@@ -20,6 +20,9 @@ NEW_ICS_OUTPUT = 'birthdays_new.ics'  # written with --calendar; not configurabl
 # Accepted --delimiter values (matched case-insensitively) and the separator each one means
 DELIMITER_CHOICES = {';': ';', ',': ',', 'tab': '\t'}
 
+# Columns the contacts input should have; a missing one is reported as a warning
+EXPECTED_COLUMNS = ('First Name', 'Last Name', 'Birthday')
+
 # Date formats accepted for birthdays that include a year
 FULL_DATE_FORMATS = ('%d/%m/%Y', '%Y-%m-%d')
 
@@ -125,6 +128,18 @@ def detect_delimiter(path):
     if len(best) > 1:
         raise ValueError(f"ambiguous column separator in {path}; use --delimiter")
     return best[0]
+
+def missing_expected_columns(path, delimiter):
+    """Return the expected columns that the header of path does not have.
+
+    Only the first line is read. Spaces around each header field are ignored.
+    The names are returned in the order of EXPECTED_COLUMNS. Middle Name is not
+    expected, so it is never reported.
+    """
+    with open(path, encoding='utf-8-sig', newline='') as f:
+        line = f.readline().rstrip('\r\n')
+    header = {field.strip() for field in next(csv.reader([line], delimiter=delimiter), [])}
+    return [name for name in EXPECTED_COLUMNS if name not in header]
 
 def build_birthday_events(csv_file, delimiter=';'):
     """Read birthdays from csv_file and return a list of BirthdayEvent records.
@@ -452,6 +467,16 @@ def main(argv=None):
     except ValueError as err:
         print(f"Error: {err}", file=sys.stderr)
         return 1
+
+    # Warn about missing expected columns before writing anything. A missing file
+    # is left to the read below, which reports it as before.
+    try:
+        missing_columns = missing_expected_columns(args.input, delimiter)
+    except FileNotFoundError:
+        missing_columns = []
+    for name in missing_columns:
+        print(f"Warning: column '{name}' not found in {args.input}; its values will be empty",
+              file=sys.stderr)
 
     try:
         if args.csv is not None:

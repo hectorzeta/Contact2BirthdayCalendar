@@ -1064,5 +1064,79 @@ class SeparatorTests(ScratchMixin, unittest.TestCase):
         self.assertIn('Error: input file not found', result.stderr)
 
 
+class MissingColumnWarningTests(ScratchMixin, unittest.TestCase):
+    """A missing expected column prints one warning on stderr and the run continues."""
+
+    def run_script(self, *args, cwd=None):
+        return subprocess.run([sys.executable, SCRIPT, *args], cwd=cwd or self.tmp,
+                              capture_output=True, text=True)
+
+    def warnings(self, result):
+        return [line for line in result.stderr.splitlines() if line.startswith('Warning')]
+
+    def test_exact_header_prints_no_warning(self):
+        path = self.write_csv('contacts.csv',
+                              'First Name;Last Name;Birthday\nAnn;Lee;1990-05-01\n')
+        result = self.run_script('-i', path, '--csv', os.path.join(self.tmp, 'clean.csv'))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.warnings(result), [])
+
+    def test_quoted_header_reports_only_last_name(self):
+        path = self.write_csv('contacts.csv',
+                              'First Name;"Last, First, Middle, Suffix";Birthday\n'
+                              'Ann;Lee, Ann, Q, Jr;1990-05-01\n')
+        result = self.run_script('-i', path, '--ics', os.path.join(self.tmp, 'birthdays.ics'))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.warnings(result),
+                         [f"Warning: column 'Last Name' not found in {path}; "
+                          "its values will be empty"])
+
+    def test_missing_birthday_column_prints_warning_and_exits_zero(self):
+        path = self.write_csv('contacts.csv',
+                              'First Name;Last Name;Nickname\nAnn;Lee;Annie\n')
+        result = self.run_script('-i', path, '--delimiter', ';',
+                                 '--csv', os.path.join(self.tmp, 'clean.csv'))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.warnings(result),
+                         [f"Warning: column 'Birthday' not found in {path}; "
+                          "its values will be empty"])
+
+    def test_missing_middle_name_prints_no_warning(self):
+        path = self.write_csv('contacts.csv',
+                              'First Name;Last Name;Birthday\nAnn;Lee;1990-05-01\n')
+        result = self.run_script('-i', path, '--ics', os.path.join(self.tmp, 'birthdays.ics'))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('Middle Name', result.stderr)
+        self.assertEqual(self.warnings(result), [])
+
+    def test_missing_input_file_keeps_error_and_no_warning(self):
+        result = self.run_script('-i', os.path.join(self.tmp, 'nope.csv'), '--csv')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('Error: input file not found', result.stderr)
+        self.assertNotIn('Warning', result.stderr)
+
+    def test_warning_does_not_stop_csv_and_ics_output(self):
+        path = self.write_csv('contacts.csv',
+                              'First Name;"Last, First, Middle, Suffix";Birthday\n'
+                              'Ann;Lee, Ann, Q, Jr;1990-05-01\n')
+        csv_out = os.path.join(self.tmp, 'clean.csv')
+        ics_out = os.path.join(self.tmp, 'birthdays.ics')
+        result = self.run_script('-i', path, '--csv', csv_out, '--ics', ics_out)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.warnings(result)), 1)
+        self.assertTrue(os.path.exists(csv_out))
+        self.assertTrue(os.path.exists(ics_out))
+
+    def test_warnings_are_printed_in_expected_order(self):
+        path = self.write_csv('contacts.csv', 'Middle Name;Birthday\nQ;1990-05-01\n')
+        result = self.run_script('-i', path, '--ics', os.path.join(self.tmp, 'birthdays.ics'))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.warnings(result),
+                         [f"Warning: column 'First Name' not found in {path}; "
+                          "its values will be empty",
+                          f"Warning: column 'Last Name' not found in {path}; "
+                          "its values will be empty"])
+
+
 if __name__ == '__main__':
     unittest.main()
