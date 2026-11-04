@@ -80,7 +80,7 @@ class CleanCsvExampleTests(ScratchMixin, unittest.TestCase):
             self.count = cal.clean_contacts_csv(EXAMPLE_CSV, self.out)
 
     def test_returns_number_of_rows_written(self):
-        self.assertEqual(self.count, 5)
+        self.assertEqual(self.count, 7)
 
     def test_header_has_only_the_four_kept_columns(self):
         with open(self.out, encoding='utf-8') as f:
@@ -93,14 +93,15 @@ class CleanCsvExampleTests(ScratchMixin, unittest.TestCase):
     def test_company_only_row_is_dropped(self):
         # The "ACME" row has only an Organization Name, so every kept column is empty.
         rows = read_clean_rows(self.out)
-        self.assertEqual(len(rows), 5)
+        self.assertEqual(len(rows), 7)
         for row in rows:
             self.assertTrue(any(row.values()), f"empty row kept: {row}")
 
     def test_first_name_is_read_despite_byte_order_mark(self):
         # example.csv starts with a UTF-8 BOM; the first column must still be found.
         first_names = [r['First Name'] for r in read_clean_rows(self.out)]
-        self.assertEqual(first_names, ['A', 'Alice', 'Granma', 'Alexandra', 'Bertha'])
+        self.assertEqual(first_names,
+                         ['A', 'Alice', 'Granma', 'Alexandra', 'Bertha', 'LeapYear', 'LeapNo'])
 
 
 class IcsExampleTests(ScratchMixin, unittest.TestCase):
@@ -125,10 +126,23 @@ class IcsExampleTests(ScratchMixin, unittest.TestCase):
         self.assertEqual(len(matches), 1, f"expected one event titled {summary!r}")
         return matches[0]
 
-    def test_example_has_two_usable_birthdays(self):
-        # Bertha ("--01-01") and Granma (ISO "1931-03-31"). Alice, Dalas, A and
-        # Alexandra have no birthday; the ACME row is not a contact.
-        self.assertEqual(len(self.events), 2)
+    def test_example_has_four_usable_birthdays(self):
+        # Bertha ("--01-01"), Granma (ISO "1931-03-31"), and the two Feb 29 rows
+        # ("2000-02-29" and "--02-29"). Alice, Dalas, A and Alexandra have no
+        # birthday; the ACME row is not a contact.
+        self.assertEqual(len(self.events), 4)
+
+    def test_feb_29_with_year_is_on_that_exact_date(self):
+        event = self.event('Birthday: LeapYear WithYear (2000)')
+        self.assertEqual(event['DTSTART'], '20000229')
+        self.assertEqual(event['RRULE'], 'FREQ=YEARLY')
+
+    def test_feb_29_without_year_uses_a_leap_year_placeholder(self):
+        event = self.event('Birthday: LeapNo YearDay')
+        self.assertEqual(event['DTSTART'][4:], '0229')
+        start_year = int(event['DTSTART'][:4])
+        self.assertTrue(calendar.isleap(start_year))
+        self.assertGreaterEqual(start_year, datetime.date.today().year)
 
     def test_bertha_event_is_yearly_on_january_first(self):
         event = self.event('Birthday: Bertha Mars')
@@ -303,7 +317,7 @@ class CommandLineTests(ScratchMixin, unittest.TestCase):
         result = self.run_script('-i', EXAMPLE_CSV, '--csv', csv_out, '--ics', ics_out)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(os.path.exists(csv_out))
-        self.assertEqual(len(parse_ics_events(ics_out)), 2)
+        self.assertEqual(len(parse_ics_events(ics_out)), 4)
 
 
 if __name__ == '__main__':

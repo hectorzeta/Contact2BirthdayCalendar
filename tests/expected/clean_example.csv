@@ -4,3 +4,5 @@ Alice;;Do;
 Granma;;;1931-03-31
 Alexandra;;A;
 Bertha;;Mars;--01-01
+LeapYear;;WithYear;2000-02-29
+LeapNo;;YearDay;--02-29
