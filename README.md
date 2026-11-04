@@ -1,4 +1,4 @@
-# hza-scripts
+# Contact2BirthdayCalendar
 
 Small utility scripts for HZA.
 
@@ -7,6 +7,25 @@ Small utility scripts for HZA.
 Converts a contacts export into a calendar file of yearly recurring birthday events.
 
 It reads a semicolon-delimited CSV with `First Name`, `Last Name` and `Birthday` columns, and writes an iCalendar (`.ics`) file that most calendar apps (Google Calendar, Apple Calendar, Outlook) can import.
+
+### Motivation
+
+Google no longer syncs contact birthdays to the calendar. As part of an agreement with a German regulator, Google is changing how it processes personal data. As a result, this feature may be less complete or not available. This script lets you export your contacts' birthdays yourself and import them into your calendar.
+
+### Workflow
+
+```mermaid
+flowchart LR
+    A["Export contacts<br/>from Google Contacts<br/>as CSV"] --> B["Save as contacts.csv<br/>in the project folder"]
+    B --> C["Run the script<br/>python3 contactsToCalendar.py"]
+    C --> D["birthdays.ics<br/>created"]
+    D --> E["Import birthdays.ics<br/>into your calendar app"]
+```
+
+1. **Export** your contacts from Google Contacts as a CSV file.
+2. **Save** the file as `contacts.csv` in the project folder.
+3. **Run** `python3 contactsToCalendar.py`. This writes `birthdays.ics`.
+4. **Import** `birthdays.ics` into your calendar app (for example, Google Calendar: *Settings → Import & export → Import*).
 
 ### Birthday formats
 
