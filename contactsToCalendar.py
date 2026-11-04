@@ -7,12 +7,15 @@ import argparse
 import calendar
 import csv
 import datetime
+import re
 import sys
 import uuid
+from typing import NamedTuple, Optional
 
 DEFAULT_INPUT = 'contacts.csv'
 DEFAULT_CSV_OUTPUT = 'contacts_clean.csv'
 DEFAULT_ICS_OUTPUT = 'birthdays.ics'
+NEW_ICS_OUTPUT = 'birthdays_new.ics'  # written with --calendar; not configurable
 
 # Date formats accepted for birthdays that include a year
 FULL_DATE_FORMATS = ('%d/%m/%Y', '%Y-%m-%d')
@@ -61,16 +64,24 @@ def fold_ics_line(line):
     chunks.append(current)
     return (ICS_LINE_END + ' ').join(chunks)
 
-def create_birthday_calendar(csv_file, ics_file):
-    """Read birthdays from csv_file and write them as recurring events to ics_file."""
-    dtstamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-    lines = [
-        "BEGIN:VCALENDAR",
-        "PRODID:-//HZ//HZ//EN",
-        "VERSION:2.0",
-        "CALSCALE:GREGORIAN",
-    ]
+class BirthdayEvent(NamedTuple):
+    """One birthday, ready to be written as a VEVENT.
 
+    summary is the SUMMARY text before escaping; write_calendar escapes it.
+    birth_year is an int, or None when the birthday has no year.
+    """
+    uid: str
+    birth_date: datetime.date
+    name: str
+    birth_year: Optional[int]
+    summary: str
+
+def build_birthday_events(csv_file):
+    """Read birthdays from csv_file and return a list of BirthdayEvent records.
+
+    Rows without a birthday are skipped. Malformed dates are reported and skipped.
+    """
+    events = []
     # utf-8-sig also strips the byte-order mark that some exports (e.g. Google) add
     with open(csv_file, newline='', encoding='utf-8-sig') as file:
         # Each row becomes a dict keyed by header names; fields are separated by ';'
@@ -86,7 +97,7 @@ def create_birthday_calendar(csv_file, ics_file):
                 # Handle birthdays with no year (e.g., "--MM-DD")
                 # Use the current year as a placeholder so the event has a valid start date;
                 # RRULE below makes it repeat every year.
-                birth_year = ""
+                birth_year = None
                 if birthday.startswith('--'):
                     month_day = birthday[2:]
                     year = datetime.date.today().year
@@ -99,8 +110,7 @@ def create_birthday_calendar(csv_file, ics_file):
                 else:
                     # Handle birthdays with a year: "DD/MM/YYYY" or ISO "YYYY-MM-DD"
                     birth_date = parse_full_date(birthday)
-                    # Append the birth year to the event title, e.g. " (1990)"
-                    birth_year = f" ({birth_date.year})"
+                    birth_year = birth_date.year
             except ValueError:
                 # Malformed dates are reported and skipped
                 print(f"Skipping invalid date: {birthday} for {first} {last}")
@@ -110,20 +120,185 @@ def create_birthday_calendar(csv_file, ics_file):
             name = ' '.join(p for p in (first, last) if p)
             # UID must be stable and unique: derived from the row position and its contents
             uid = f"{uuid.uuid5(uuid.NAMESPACE_URL, f'{line_no}|{name}|{birthday}')}@contactsToCalendar"
-            lines += [
-                "BEGIN:VEVENT",
-                f"UID:{uid}",
-                f"DTSTAMP:{dtstamp}",
-                f"DTSTART;VALUE=DATE:{birth_date.strftime('%Y%m%d')}",
-                "RRULE:FREQ=YEARLY",
-                "SUMMARY:" + escape_ics_text(f"Birthday: {name}{birth_year}"),
-                "END:VEVENT",
-            ]
+            # Append the birth year to the event title, e.g. " (1990)", when it is known
+            year_part = f" ({birth_year})" if birth_year is not None else ""
+            events.append(BirthdayEvent(uid, birth_date, name, birth_year, f"Birthday: {name}{year_part}"))
+    return events
+
+def write_calendar(events, ics_file, dtstamp):
+    """Write BirthdayEvent records to ics_file as an iCalendar file.
+
+    dtstamp is the DTSTAMP value (YYYYMMDDTHHMMSSZ) written on every event.
+    """
+    lines = [
+        "BEGIN:VCALENDAR",
+        "PRODID:-//HZ//HZ//EN",
+        "VERSION:2.0",
+        "CALSCALE:GREGORIAN",
+    ]
+    for event in events:
+        lines += [
+            "BEGIN:VEVENT",
+            f"UID:{event.uid}",
+            f"DTSTAMP:{dtstamp}",
+            f"DTSTART;VALUE=DATE:{event.birth_date.strftime('%Y%m%d')}",
+            "RRULE:FREQ=YEARLY",
+            "SUMMARY:" + escape_ics_text(event.summary),
+            "END:VEVENT",
+        ]
 
     lines.append("END:VCALENDAR")
     with open(ics_file, 'w', encoding='utf-8', newline='') as f:
         for line in lines:
             f.write(fold_ics_line(line) + ICS_LINE_END)
+
+def unfold_ics_lines(text):
+    """Split iCalendar text into logical content lines (RFC 5545 section 3.1).
+
+    Accepts CRLF or LF. A line that starts with a space or tab continues the
+    previous line; the break and that one whitespace character are removed.
+    """
+    lines = []
+    for raw in text.split('\n'):
+        raw = raw[:-1] if raw.endswith('\r') else raw
+        if raw[:1] in (' ', '\t') and lines:
+            lines[-1] += raw[1:]
+        else:
+            lines.append(raw)
+    return lines
+
+def unescape_ics_text(value):
+    """Undo RFC 5545 TEXT escapes (\\n, \\N, \\, \\; and \\\\) in one pass."""
+    return re.sub(r'\\([nN\\,;])',
+                  lambda m: '\n' if m.group(1) in 'nN' else m.group(1),
+                  value)
+
+def parse_export_date(value):
+    """Return the date in the YYYYMMDD part of a DTSTART value, or None.
+
+    Only the first 8 characters are read, so a time or TZID is ignored.
+    """
+    digits = value[:8]
+    if not re.fullmatch(r'[0-9]{8}', digits):
+        return None
+    try:
+        return datetime.date(int(digits[:4]), int(digits[4:6]), int(digits[6:]))
+    except ValueError:
+        return None
+
+class ExportEvent(NamedTuple):
+    """One VEVENT read from an exported calendar.
+
+    summary is the raw SUMMARY text, unescaped. month and day come from DTSTART.
+    """
+    summary: str
+    month: int
+    day: int
+
+def read_export_events(path):
+    """Read the VEVENT blocks of an exported .ics file and return ExportEvent records.
+
+    Other components are ignored. A VEVENT with no readable DTSTART is skipped.
+    Raises FileNotFoundError if path does not exist.
+    """
+    with open(path, 'rb') as f:
+        text = f.read().decode('utf-8-sig')
+    events = []
+    props = None  # properties of the VEVENT being read, or None outside one
+    nested = 0    # depth of components inside the VEVENT (for example VALARM)
+    for line in unfold_ics_lines(text):
+        name, _, value = line.partition(':')
+        name = name.split(';', 1)[0].upper()
+        if props is None:
+            if name == 'BEGIN' and value.upper() == 'VEVENT':
+                props, nested = {}, 0
+            continue
+        if name == 'BEGIN':
+            nested += 1
+        elif name == 'END' and nested:
+            nested -= 1
+        elif name == 'END' and value.upper() == 'VEVENT':
+            start_date = parse_export_date(props.get('DTSTART', ''))
+            if start_date is not None:
+                events.append(ExportEvent(
+                    summary=unescape_ics_text(props.get('SUMMARY', '')),
+                    month=start_date.month,
+                    day=start_date.day))
+            props = None
+        elif nested == 0 and name in ('SUMMARY', 'DTSTART'):
+            props.setdefault(name, value)  # the first occurrence wins
+    return events
+
+def split_generated_title(title):
+    """Split a generated SUMMARY such as 'Birthday: Ann Lee (1990)' into (name, year).
+
+    A leading 'Birthday:' (case-insensitive) and a trailing ' (YYYY)' are removed.
+    The year is an int, or None when the title has no year.
+    """
+    name = re.sub(r'^\s*birthday:\s*', '', title, flags=re.IGNORECASE)
+    year = None
+    match = re.fullmatch(r'(.*?)\s*\((\d{4})\)\s*', name)
+    if match:
+        name, year = match.group(1), int(match.group(2))
+    return name.strip(), year
+
+def split_export_title(summary):
+    """Split an export SUMMARY such as 'Joe Doe 2000' or 'Birthday: Joe Doe (2000)' into (name, year).
+
+    A leading 'Birthday:' (case-insensitive, as Google exports it) is removed.
+    A trailing four-digit year, optionally in parentheses, is the year of birth.
+    Otherwise the whole title is the name and the year is None.
+    """
+    text = re.sub(r'^\s*birthday:\s*', '', summary.strip(), flags=re.IGNORECASE).strip()
+    match = (re.fullmatch(r'(.*?\S)\s*\((\d{4})\)', text)
+             or re.fullmatch(r'(.*?\S)\s+(\d{4})', text))
+    if match:
+        return match.group(1).strip(), int(match.group(2))
+    return text, None
+
+def titles_match(generated_title, export_summary):
+    """Return True when a generated title and an export SUMMARY name the same birthday.
+
+    Names are compared case-insensitively, with surrounding spaces trimmed and
+    repeated spaces collapsed. Years are compared only when both sides have one.
+    """
+    gen_name, gen_year = split_generated_title(generated_title)
+    exp_name, exp_year = split_export_title(export_summary)
+    if gen_year is not None and exp_year is not None and gen_year != exp_year:
+        return False
+    return ' '.join(gen_name.split()).casefold() == ' '.join(exp_name.split()).casefold()
+
+def find_new_events(generated_events, export_events):
+    """Return (new_events, matched_count) for generated events not yet in the export.
+
+    Each export event matches at most one generated event. Generated events are
+    checked in order; new_events keeps that order. The inputs are not modified.
+    """
+    used = set()  # indexes of export events already matched
+    new_events = []
+    matched_count = 0
+    for generated in generated_events:
+        for index, export in enumerate(export_events):
+            if index in used:
+                continue
+            if (export.month, export.day) == (generated.birth_date.month, generated.birth_date.day) \
+                    and titles_match(generated.summary, export.summary):
+                used.add(index)
+                matched_count += 1
+                break
+        else:
+            new_events.append(generated)
+    return new_events, matched_count
+
+def make_dtstamp():
+    """Return the current UTC time in the YYYYMMDDTHHMMSSZ form used for DTSTAMP."""
+    return datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+
+def create_birthday_calendar(csv_file, ics_file):
+    """Read birthdays from csv_file and write them as recurring events to ics_file."""
+    dtstamp = make_dtstamp()
+    events = build_birthday_events(csv_file)
+    write_calendar(events, ics_file, dtstamp)
     print(f"Calendar file created: {ics_file}")
 
 def clean_contacts_csv(csv_file, output_file):
@@ -162,6 +337,7 @@ def parse_args(argv=None):
             "  python3 contactsToCalendar.py            (same as --ics)\n"
             "  python3 contactsToCalendar.py --ics\n"
             "  python3 contactsToCalendar.py --csv --ics\n"
+            "  python3 contactsToCalendar.py --calendar exported.ics\n"
             "  python3 contactsToCalendar.py -i my_contacts.csv --csv cleaned.csv --ics out.ics\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -181,6 +357,12 @@ def parse_args(argv=None):
               f"(default output: {DEFAULT_ICS_OUTPUT}). This is the default "
               "when neither --csv nor --ics is given."),
     )
+    parser.add_argument(
+        '--calendar', metavar='FILE',
+        help=("exported calendar to compare against. Also writes "
+              f"{NEW_ICS_OUTPUT} with only the birthdays not already in it, "
+              "and writes the birthday calendar as usual"),
+    )
     return parser.parse_args(argv)
 
 def main(argv=None):
@@ -188,13 +370,33 @@ def main(argv=None):
     args = parse_args(argv)
 
     # With no output option, default to the calendar file
-    if args.csv is None and args.ics is None:
+    if args.csv is None and args.ics is None and args.calendar is None:
         args.ics = DEFAULT_ICS_OUTPUT
+
+    # Read the export before writing anything, so a missing file leaves no output
+    export_events = None
+    if args.calendar is not None:
+        try:
+            export_events = read_export_events(args.calendar)
+        except FileNotFoundError as err:
+            print(f"Error: calendar file not found: {err.filename}", file=sys.stderr)
+            return 1
 
     try:
         if args.csv is not None:
             clean_contacts_csv(args.input, args.csv)
-        if args.ics is not None:
+        if args.calendar is not None:
+            # Build the events once so birthdays.ics and birthdays_new.ics come from the same list
+            dtstamp = make_dtstamp()
+            events = build_birthday_events(args.input)
+            ics_file = args.ics or DEFAULT_ICS_OUTPUT
+            write_calendar(events, ics_file, dtstamp)
+            print(f"Calendar file created: {ics_file}")
+            new_events, matched_count = find_new_events(events, export_events)
+            write_calendar(new_events, NEW_ICS_OUTPUT, dtstamp)
+            print(f"Calendar file created: {NEW_ICS_OUTPUT} "
+                  f"({len(new_events)} new, {matched_count} already in calendar)")
+        elif args.ics is not None:
             create_birthday_calendar(args.input, args.ics)
     except FileNotFoundError as err:
         print(f"Error: input file not found: {err.filename}", file=sys.stderr)
