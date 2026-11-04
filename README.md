@@ -14,6 +14,7 @@ It reads a semicolon-delimited CSV with `First Name`, `Last Name` and `Birthday`
 |---|---|---|
 | `--MM-DD` (no year) | `--03-31` | Yearly event on that date, title without a year |
 | `DD/MM/YYYY` | `15/03/1990` | Yearly event on that date, title includes the birth year, e.g. `(1990)` |
+| `YYYY-MM-DD` (ISO) | `1990-03-15` | Same as above |
 
 - `--02-29` (Feb 29) is placed on the next leap year, so the event repeats only in leap years.
 - Rows with no birthday are skipped.
@@ -46,6 +47,23 @@ Run `python3 contactsToCalendar.py --help` for all options:
 | `-i`, `--input FILE` | Contacts CSV to read (default `contacts.csv`) |
 | `--csv [FILE]` | Write a cleaned CSV, dropping empty rows (default `contacts_clean.csv`) |
 | `--ics [FILE]` | Write a birthday calendar (default `birthdays.ics`) |
+
+### Tests
+
+The tests use only the Python standard library. Run them from the project folder:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+The tests live in `tests/`:
+
+| Path | Purpose |
+|---|---|
+| `tests/test_contacts_to_calendar.py` | All test cases |
+| `tests/fixtures/example.csv` | Sample Google Contacts export used as test input |
+| `tests/expected/clean_example.csv` | Expected output of `--csv` for the sample file |
+
 
 ### Files
 

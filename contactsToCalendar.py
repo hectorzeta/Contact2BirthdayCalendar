@@ -13,6 +13,21 @@ DEFAULT_INPUT = 'contacts.csv'
 DEFAULT_CSV_OUTPUT = 'contacts_clean.csv'
 DEFAULT_ICS_OUTPUT = 'birthdays.ics'
 
+# Date formats accepted for birthdays that include a year
+FULL_DATE_FORMATS = ('%d/%m/%Y', '%Y-%m-%d')
+
+def parse_full_date(value):
+    """Parse a birthday with a year, trying each supported format in turn.
+
+    Raises ValueError if none of the formats match.
+    """
+    for fmt in FULL_DATE_FORMATS:
+        try:
+            return datetime.datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    raise ValueError(f"unsupported date: {value}")
+
 def create_birthday_calendar(csv_file, ics_file):
     """Read birthdays from csv_file and write them as recurring events to ics_file."""
     with open(ics_file, 'w', encoding='utf-8') as f:
@@ -21,7 +36,8 @@ def create_birthday_calendar(csv_file, ics_file):
         f.write("PRODID:-//HZ//HZ//EN\n")
         f.write("VERSION:2.0\n")
 
-        with open(csv_file, newline='', encoding='utf-8') as file:
+        # utf-8-sig also strips the byte-order mark that some exports (e.g. Google) add
+        with open(csv_file, newline='', encoding='utf-8-sig') as file:
             # Each row becomes a dict keyed by header names; fields are separated by ';'
             reader = csv.DictReader(file,delimiter=";")
             for row in reader:
@@ -44,15 +60,17 @@ def create_birthday_calendar(csv_file, ics_file):
                                     year += 1
                             birth_date = datetime.datetime.strptime(f"{year}-{month_day}", '%Y-%m-%d').date()
                         else:
-                            # Handle birthdays with a year (e.g., "DD/MM/YYYY")
-                            birth_date = datetime.datetime.strptime(birthday, '%d/%m/%Y').date()
+                            # Handle birthdays with a year: "DD/MM/YYYY" or ISO "YYYY-MM-DD"
+                            birth_date = parse_full_date(birthday)
                             # Append the birth year to the event title, e.g. " (1990)"
                             birth_year = f" ({birth_date.year})"
                         # Write one VEVENT block: start date, yearly recurrence, and title
                         f.write("BEGIN:VEVENT\n")
                         f.write(f"DTSTART:{birth_date.strftime('%Y%m%d')}\n")
                         f.write("RRULE:FREQ=YEARLY\n")
-                        f.write(f"SUMMARY:Birthday: {row.get('First Name', '')} {row.get('Last Name', '')}{birth_year}\n")
+                        # Join only non-empty name parts so a missing last name leaves no double space
+                        name = ' '.join(p for p in (row.get('First Name') or '', row.get('Last Name') or '') if p)
+                        f.write(f"SUMMARY:Birthday: {name}{birth_year}\n")
                         f.write("END:VEVENT\n")
                     except ValueError:
                         # strptime raises ValueError for malformed dates; report and skip the row
@@ -71,7 +89,7 @@ def clean_contacts_csv(csv_file, output_file):
     keep_columns = ['First Name', 'Middle Name', 'Last Name', 'Birthday']
     rows_written = 0
 
-    with open(csv_file, newline='', encoding='utf-8') as infile, \
+    with open(csv_file, newline='', encoding='utf-8-sig') as infile, \
          open(output_file, 'w', newline='', encoding='utf-8') as outfile:
         reader = csv.DictReader(infile, delimiter=";")
         writer = csv.DictWriter(outfile, fieldnames=keep_columns, delimiter=";")
