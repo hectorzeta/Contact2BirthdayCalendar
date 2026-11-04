@@ -76,6 +76,28 @@ class BirthdayEvent(NamedTuple):
     birth_year: Optional[int]
     summary: str
 
+def parse_birthday(birthday):
+    """Return (birth_date, birth_year) for a Birthday value, or raise ValueError.
+
+    birth_year is None when the value has no year, such as "--MM-DD".
+    """
+    # Handle birthdays with no year (e.g., "--MM-DD")
+    # Use the current year as a placeholder so the event has a valid start date;
+    # RRULE below makes it repeat every year.
+    if birthday.startswith('--'):
+        month_day = birthday[2:]
+        year = datetime.date.today().year
+        # Feb 29 only exists in leap years, so use the next leap year as the
+        # placeholder; the yearly RRULE then only fires in leap years.
+        if month_day == '02-29':
+            while not calendar.isleap(year):
+                year += 1
+        birth_date = datetime.datetime.strptime(f"{year}-{month_day}", '%Y-%m-%d').date()
+        return birth_date, None
+    # Handle birthdays with a year: "DD/MM/YYYY" or ISO "YYYY-MM-DD"
+    birth_date = parse_full_date(birthday)
+    return birth_date, birth_date.year
+
 def build_birthday_events(csv_file):
     """Read birthdays from csv_file and return a list of BirthdayEvent records.
 
@@ -94,23 +116,7 @@ def build_birthday_events(csv_file):
             first = row.get('First Name') or ''
             last = row.get('Last Name') or ''
             try:
-                # Handle birthdays with no year (e.g., "--MM-DD")
-                # Use the current year as a placeholder so the event has a valid start date;
-                # RRULE below makes it repeat every year.
-                birth_year = None
-                if birthday.startswith('--'):
-                    month_day = birthday[2:]
-                    year = datetime.date.today().year
-                    # Feb 29 only exists in leap years, so use the next leap year as the
-                    # placeholder; the yearly RRULE then only fires in leap years.
-                    if month_day == '02-29':
-                        while not calendar.isleap(year):
-                            year += 1
-                    birth_date = datetime.datetime.strptime(f"{year}-{month_day}", '%Y-%m-%d').date()
-                else:
-                    # Handle birthdays with a year: "DD/MM/YYYY" or ISO "YYYY-MM-DD"
-                    birth_date = parse_full_date(birthday)
-                    birth_year = birth_date.year
+                birth_date, birth_year = parse_birthday(birthday)
             except ValueError:
                 # Malformed dates are reported and skipped
                 print(f"Skipping invalid date: {birthday} for {first} {last}")
@@ -229,13 +235,17 @@ def read_export_events(path):
             props.setdefault(name, value)  # the first occurrence wins
     return events
 
+def strip_birthday_label(text):
+    """Remove a leading 'Birthday:' label (case-insensitive) from a SUMMARY."""
+    return re.sub(r'^\s*birthday:\s*', '', text, flags=re.IGNORECASE)
+
 def split_generated_title(title):
     """Split a generated SUMMARY such as 'Birthday: Ann Lee (1990)' into (name, year).
 
     A leading 'Birthday:' (case-insensitive) and a trailing ' (YYYY)' are removed.
     The year is an int, or None when the title has no year.
     """
-    name = re.sub(r'^\s*birthday:\s*', '', title, flags=re.IGNORECASE)
+    name = strip_birthday_label(title)
     year = None
     match = re.fullmatch(r'(.*?)\s*\((\d{4})\)\s*', name)
     if match:
@@ -249,7 +259,7 @@ def split_export_title(summary):
     A trailing four-digit year, optionally in parentheses, is the year of birth.
     Otherwise the whole title is the name and the year is None.
     """
-    text = re.sub(r'^\s*birthday:\s*', '', summary.strip(), flags=re.IGNORECASE).strip()
+    text = strip_birthday_label(summary.strip()).strip()
     match = (re.fullmatch(r'(.*?\S)\s*\((\d{4})\)', text)
              or re.fullmatch(r'(.*?\S)\s+(\d{4})', text))
     if match:
@@ -268,6 +278,11 @@ def titles_match(generated_title, export_summary):
         return False
     return ' '.join(gen_name.split()).casefold() == ' '.join(exp_name.split()).casefold()
 
+def is_same_birthday(generated, export):
+    """Return True when a BirthdayEvent and an ExportEvent have the same month, day and name."""
+    same_day = (export.month, export.day) == (generated.birth_date.month, generated.birth_date.day)
+    return same_day and titles_match(generated.summary, export.summary)
+
 def find_new_events(generated_events, export_events):
     """Return (new_events, matched_count) for generated events not yet in the export.
 
@@ -279,10 +294,7 @@ def find_new_events(generated_events, export_events):
     matched_count = 0
     for generated in generated_events:
         for index, export in enumerate(export_events):
-            if index in used:
-                continue
-            if (export.month, export.day) == (generated.birth_date.month, generated.birth_date.day) \
-                    and titles_match(generated.summary, export.summary):
+            if index not in used and is_same_birthday(generated, export):
                 used.add(index)
                 matched_count += 1
                 break
