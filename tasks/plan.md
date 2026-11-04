@@ -22,37 +22,37 @@ When `--calendar FILE` is given, the tool writes `birthdays_new.ics` containing 
 
 ### Phase 1: Refactor (no behaviour change)
 
-- [ ] Task 1: Extract `build_birthday_events` and `write_calendar`
+- [x] Task 1: Extract `build_birthday_events` and `write_calendar`
 
 ### Phase 2: New pieces (independent of each other, both depend on Task 1 only for shared types)
 
-- [ ] Task 2: Export reader `read_export_events`
-- [ ] Task 3: Title matching `titles_match` and title splitters
+- [x] Task 2: Export reader `read_export_events`
+- [x] Task 3: Title matching `titles_match` and title splitters
 
 ### Checkpoint: Building blocks
-- [ ] All existing tests pass
-- [ ] Ruff passes
-- [ ] Unit tests for Tasks 2 and 3 pass
+- [x] All existing tests pass
+- [x] Ruff passes
+- [x] Unit tests for Tasks 2 and 3 pass
 
 ### Phase 3: Dedupe logic
 
-- [ ] Task 4: One-to-one dedupe `find_new_events`
+- [x] Task 4: One-to-one dedupe `find_new_events`
 
 ### Phase 4: CLI integration
 
-- [ ] Task 5: `--calendar` option, output files, error handling, messages
+- [x] Task 5: `--calendar` option, output files, error handling, messages
 
 ### Checkpoint: Feature complete
-- [ ] All spec success criteria have a passing test
-- [ ] `birthdays.ics` from a `--calendar` run matches a plain run apart from `DTSTAMP`
-- [ ] Ruff passes; full suite passes
+- [x] All spec success criteria have a passing test
+- [x] `birthdays.ics` from a `--calendar` run matches a plain run apart from `DTSTAMP`
+- [x] Ruff passes; full suite passes
 
 ### Phase 5: Docs and fixture
 
-- [ ] Task 6: Fictional export fixture and README usage
+- [x] Task 6: Fictional export fixture and README usage
 
 ### Checkpoint: Ready for PR
-- [ ] Run `ruff check .` and `python3 tests/run_tests.py`
+- [x] Run `ruff check .` and `python3 tests/run_tests.py`
 - [ ] Review diff against the spec
 
 ## Risks and Mitigations
