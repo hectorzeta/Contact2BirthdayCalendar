@@ -311,7 +311,7 @@ class IcsValidityTests(ScratchMixin, unittest.TestCase):
         summary = parse_ics_events(out)[0]['SUMMARY']
         # Titles use first and last name only; the middle name is not shown
         self.assertEqual(summary, 'Birthday: Ann Smith, Jr (1990)')
-        raw_line = next(l for l in read_ics_lines(out) if l.startswith('SUMMARY'))
+        raw_line = next(line for line in read_ics_lines(out) if line.startswith('SUMMARY'))
         self.assertIn('Smith\\, Jr', raw_line)
 
     def test_long_summary_is_folded_to_75_octets(self):
