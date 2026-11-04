@@ -16,7 +16,7 @@ Repo: `hectorzeta/Contact2BirthdayCalendar` on GitHub (private).
 
 - Commit only when the user asks. Push only when the user asks.
 - Work on a feature branch. Do not push to `main` on GitHub. Code reaches `main` only through a merged PR.
-- Current feature branch: `feature/contacts-calendar-tests`. Its PR is the way code gets into `main`.
+- Each new feature is implemented on its own branch, created from `main`. Its PR is the way code gets into `main`.
 - Commit messages end with: `Co-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>`
 - PR descriptions end with: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
 - Do not change the user's global git config. If HTTPS auth is needed, pass the GitHub CLI credential helper for that one command:
@@ -49,6 +49,7 @@ Repo: `hectorzeta/Contact2BirthdayCalendar` on GitHub (private).
 
 ## Working style
 
+- Each task is implemented by a subagent.
 - Ask when a request is ambiguous or when an action is hard to reverse.
 - Keep temporary files in the session scratchpad, not in the project.
 - Report failures faithfully. If something could not be verified here (for example, another Python version), say so.

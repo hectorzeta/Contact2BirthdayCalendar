@@ -11,3 +11,7 @@ __pycache__/
 .claude/
 # Generated test reports
 tests/reports/
+birthdays_new.ics
+
+# Personal test output folder (created by hand for testing)
+tmp/
