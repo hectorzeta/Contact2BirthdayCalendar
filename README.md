@@ -114,3 +114,7 @@ The tests live in `tests/`:
 ### Editor setup
 
 `.vscode/launch.json` contains a debug configuration that runs the currently open Python file from the project folder.
+
+### License
+
+This project is licensed under the [MIT License](LICENSE).
