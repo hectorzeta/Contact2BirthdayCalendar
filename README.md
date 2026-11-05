@@ -66,6 +66,8 @@ With `--calendar`, `birthdays_new.ics` holds only the birthdays that are not alr
 
 The column separator is detected automatically from the header line (`;`, `,` or tab). To set it yourself, use `--delimiter`, for example `python3 contactsToCalendar.py --delimiter tab --ics`.
 
+Running `python3 contactsToCalendar.py` with no arguments shows this help and writes nothing.
+
 Run `python3 contactsToCalendar.py --help` for all options:
 
 | Option | Meaning |
