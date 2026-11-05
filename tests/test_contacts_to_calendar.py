@@ -1256,6 +1256,38 @@ class QuotedHeaderTests(ScratchMixin, unittest.TestCase):
         self.assertEqual(rows[1], ['Ann', '', '', '1990-05-01'])
 
 
+class NoArgumentsTests(ScratchMixin, unittest.TestCase):
+    """Running with no arguments shows the help instead of an error."""
+
+    def run_script(self, *args, cwd=None):
+        return subprocess.run([sys.executable, SCRIPT, *args], cwd=cwd or self.tmp,
+                              capture_output=True, text=True)
+
+    def test_no_arguments_prints_help_and_exits_zero(self):
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('usage:', result.stdout)
+        self.assertIn('--prodid', result.stdout)
+
+    def test_no_arguments_output_matches_help_option(self):
+        self.assertEqual(self.run_script().stdout, self.run_script('--help').stdout)
+
+    def test_no_arguments_writes_no_files_and_does_not_read_contacts(self):
+        # The working folder has no contacts.csv; no error and no output files
+        result = self.run_script()
+        self.assertEqual(result.stderr, '')
+        self.assertEqual(os.listdir(self.tmp), [])
+
+    def test_no_arguments_main_returns_zero(self):
+        with mock.patch('sys.stdout'):
+            self.assertEqual(cal.main([]), 0)
+
+    def test_input_option_alone_still_writes_calendar(self):
+        result = self.run_script('-i', EXAMPLE_CSV)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(os.path.exists(os.path.join(self.tmp, 'birthdays.ics')))
+
+
 class ProdidOptionTests(ScratchMixin, unittest.TestCase):
     """The --prodid option sets the PRODID line of the calendar files."""
 

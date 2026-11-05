@@ -128,6 +128,8 @@ python3 contactsToCalendar.py [-i FILE] [--delimiter VALUE] [--csv [FILE]] [--ic
 - `--csv` and `--ics` may both be given, and each writes its own file.
 - With neither option, the calendar is written (same as `--ics`).
 - `--help` lists all options and exits with code 0.
+- With no arguments at all, the help is printed (same as `--help`), exits with code 0, and nothing is read or written (no `contacts.csv` lookup).
+- `-i FILE` alone, or any other argument without an output option, writes the calendar (see above).
 - A missing input file prints `Error: input file not found: <name>` to stderr and exits with code 1.
 - A separator that cannot be detected, or is ambiguous, exits with code 1 (see [Column separator](#column-separator)).
 - `--prodid VALUE` is checked before anything is written. A value that is empty (or only spaces) or contains a line break prints `Error: --prodid must not be empty` or `Error: --prodid must not contain line breaks` to stderr, exits with code 1, and writes no output file.

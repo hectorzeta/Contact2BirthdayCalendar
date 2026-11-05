@@ -443,8 +443,8 @@ def parse_delimiter(value):
             f"invalid delimiter: {value!r} (choose ';', ',' or tab)")
     return DELIMITER_CHOICES[key]
 
-def parse_args(argv=None):
-    """Define and parse the command-line options."""
+def build_parser():
+    """Return the argument parser that defines the command-line options."""
     parser = argparse.ArgumentParser(
         description="Work with a contacts CSV: write a cleaned CSV and/or a birthday calendar (.ics).",
         epilog=(
@@ -490,10 +490,19 @@ def parse_args(argv=None):
               f"{NEW_ICS_OUTPUT} with only the birthdays not already in it, "
               "and writes the birthday calendar as usual"),
     )
-    return parser.parse_args(argv)
+    return parser
+
+def parse_args(argv=None):
+    """Define and parse the command-line options."""
+    return build_parser().parse_args(argv)
 
 def main(argv=None):
     """Entry point: run the requested outputs and return an exit code."""
+    # With no arguments at all, show the help instead of working on contacts.csv
+    if not (sys.argv[1:] if argv is None else argv):
+        build_parser().print_help()
+        return 0
+
     args = parse_args(argv)
 
     # With no output option, default to the calendar file
