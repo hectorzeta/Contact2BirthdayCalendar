@@ -137,28 +137,28 @@ def detect_delimiter(path):
     """Return the column separator (';', ',' or tab) of the CSV file at path.
 
     The first line is split with each candidate using split_header_fields, which
-    respects double quotes. Only candidates that give more than one column, whose
-    header has a Birthday column, and whose header has a First Name or Last Name
-    column (spaces around names ignored, case-insensitive) are kept. The one with
-    the most columns is returned. Raises ValueError if no candidate is kept, or if
-    two or more tie for the most columns.
+    respects double quotes. If two or more candidates each have a First Name, Last
+    Name or Birthday column (spaces around names ignored, case-insensitive), the
+    separator cannot be told apart and ValueError is raised. Otherwise, only
+    candidates that give more than one column, whose header has a Birthday column,
+    and whose header has a First Name or Last Name column are kept. If exactly one
+    candidate is kept, it is returned. Raises ValueError if no candidate is kept.
     """
     with open(path, encoding='utf-8-sig', newline='') as f:
         line = f.readline().rstrip('\r\n')
-    column_counts = {}
+    kept = {}
+    matching = 0
     for candidate in (';', ',', '\t'):
         fields = [field.strip().casefold() for field in split_header_fields(line, candidate)]
         has_birthday = 'birthday' in fields
         has_name = 'first name' in fields or 'last name' in fields
+        if has_birthday or has_name:
+            matching += 1
         if len(fields) > 1 and has_birthday and has_name:
-            column_counts[candidate] = len(fields)
-    if not column_counts:
+            kept[candidate] = len(fields)
+    if matching >= 2 or not kept:
         raise ValueError(f"could not detect the column separator in {path}; use --delimiter")
-    most = max(column_counts.values())
-    best = [candidate for candidate, count in column_counts.items() if count == most]
-    if len(best) > 1:
-        raise ValueError(f"ambiguous column separator in {path}; use --delimiter")
-    return best[0]
+    return next(iter(kept))
 
 def missing_expected_columns(path, delimiter):
     """Return the expected columns that the header of path does not have.

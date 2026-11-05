@@ -874,12 +874,12 @@ class DelimiterDetectionTests(ScratchMixin, unittest.TestCase):
             cal.detect_delimiter(path)
         self.assertIn('could not detect the column separator', str(ctx.exception))
 
-    def test_tie_for_most_columns_raises_ambiguous(self):
+    def test_tie_for_most_columns_raises_could_not_detect(self):
         # ';' and ',' both give 3 columns with Birthday and First Name
         path = self.write_csv('contacts.csv', 'First Name;Birthday;,First Name,Birthday\n')
         with self.assertRaises(ValueError) as ctx:
             cal.detect_delimiter(path)
-        self.assertIn('ambiguous column separator', str(ctx.exception))
+        self.assertIn('could not detect the column separator', str(ctx.exception))
 
     def test_birthday_without_name_column_raises_could_not_detect(self):
         # Both ';' and ',' have Birthday, but neither has First Name or Last Name
@@ -939,12 +939,20 @@ class DelimiterDetectionTests(ScratchMixin, unittest.TestCase):
             cal.detect_delimiter(path)
         self.assertIn('could not detect the column separator', str(ctx.exception))
 
-    def test_two_separators_with_birthday_tie_raises_ambiguous(self):
+    def test_two_separators_with_birthday_tie_raises_could_not_detect(self):
         # ';' gives ['First Name', 'Birthday', ',First Name,Birthday'] and ',' gives ['First Name;Birthday;', 'First Name', 'Birthday']: 3 columns each
         path = self.write_csv('contacts.csv', 'First Name;Birthday;,First Name,Birthday\n')
         with self.assertRaises(ValueError) as ctx:
             cal.detect_delimiter(path)
-        self.assertIn('ambiguous column separator', str(ctx.exception))
+        self.assertIn('could not detect the column separator', str(ctx.exception))
+
+    def test_name_in_one_separator_and_birthday_in_other_raises_could_not_detect(self):
+        # ';' gives ['First Name', 'Notes,Birthday'] (First Name only) and ',' gives ['First Name;Notes', 'Birthday']
+        # (Birthday only). Both candidates have a name field, so rule 3 stops detection even though neither is kept.
+        path = self.write_csv('contacts.csv', 'First Name;Notes,Birthday\n')
+        with self.assertRaises(ValueError) as ctx:
+            cal.detect_delimiter(path)
+        self.assertIn('could not detect the column separator', str(ctx.exception))
 
 
 class DelimiterOptionTests(ScratchMixin, unittest.TestCase):
@@ -1037,7 +1045,7 @@ class SeparatorTests(ScratchMixin, unittest.TestCase):
             expected = f.read()
         self.assertEqual(produced, expected)
 
-    def test_delimiter_option_overrides_ambiguous_detection(self):
+    def test_delimiter_option_overrides_detection(self):
         # The header has one ';' and one ',' after a 3-comma prefix, so both give 4 columns
         path = self.write_csv('contacts.csv',
                               'Tags,Labels,Group,Notes;First Name;Last Name;Birthday\n'
@@ -1062,23 +1070,23 @@ class SeparatorTests(ScratchMixin, unittest.TestCase):
         self.assertFalse(os.path.exists(csv_out))
         self.assertFalse(os.path.exists(ics_out))
 
-    def test_ambiguous_separator_exits_one_and_writes_nothing(self):
+    def test_could_not_detect_separator_for_tie_exits_one_and_writes_nothing(self):
         path = self.write_csv('contacts.csv', 'First Name;Birthday;,First Name,Birthday\nAnn;Lee,1990-05-01\n')
         csv_out = os.path.join(self.tmp, 'clean.csv')
         ics_out = os.path.join(self.tmp, 'birthdays.ics')
         result = self.run_script('-i', path, '--csv', csv_out, '--ics', ics_out)
         self.assertEqual(result.returncode, 1)
-        self.assertIn('Error: ambiguous column separator', result.stderr)
+        self.assertIn('Error: could not detect the column separator', result.stderr)
         self.assertFalse(os.path.exists(csv_out))
         self.assertFalse(os.path.exists(ics_out))
 
-    def test_ambiguous_separator_writes_nothing_with_calendar_export(self):
+    def test_could_not_detect_separator_for_tie_writes_nothing_with_calendar_export(self):
         path = self.write_csv('contacts.csv', 'First Name;Birthday;,First Name,Birthday\nAnn;Lee,1990-05-01\n')
         csv_out = os.path.join(self.tmp, 'clean.csv')
         result = self.run_script('-i', path, '--calendar', os.path.join(FIXTURES, 'export.ics'),
                                  '--csv', csv_out)
         self.assertEqual(result.returncode, 1)
-        self.assertIn('Error: ambiguous column separator', result.stderr)
+        self.assertIn('Error: could not detect the column separator', result.stderr)
         for name in ('clean.csv', 'birthdays.ics', 'birthdays_new.ics'):
             self.assertFalse(os.path.exists(os.path.join(self.tmp, name)), name)
 

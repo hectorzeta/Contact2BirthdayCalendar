@@ -32,10 +32,10 @@ The separator applies to the contacts input (`-i`) only. The calendar export rea
    - A doubled quote (`""`) inside quotes is a literal quote and does not end the quoted part.
    - Surrounding quotes are removed from the field names.
    - A quote that is never closed quotes the rest of the line, so the separators after it are not counted. For example, `First Name;Last"Name;Birthday` has no `Birthday` column when split with `;`, and detection fails with the "could not detect" error.
-3. Keep the candidates whose split header has a column named `Birthday` and at least one column named `First Name` or `Last Name` (spaces around the names are ignored, case-insensitive). A candidate must have more than one column to be kept.
-4. If no candidate is kept, stop with `Error: could not detect the column separator in <file>; use --delimiter` on stderr, exit code 1.
-5. If one candidate gives more columns than every other, use it.
-6. If two or more candidates tie for the most columns, stop with `Error: ambiguous column separator in <file>; use --delimiter` on stderr, exit code 1.
+3. If two or more candidates each have at least one field named `First Name`, `Last Name` or `Birthday` (spaces ignored, case-insensitive), the separator is ambiguous: stop with `Error: could not detect the column separator in <file>; use --delimiter` on stderr, exit code 1. This is checked before the rules below. It also covers a tie between candidates that would otherwise both be kept.
+4. Keep the candidates whose split header has a column named `Birthday` and at least one column named `First Name` or `Last Name` (spaces around the names are ignored, case-insensitive). A candidate must have more than one column to be kept.
+5. If no candidate is kept, stop with `Error: could not detect the column separator in <file>; use --delimiter` on stderr, exit code 1.
+6. Otherwise, use the single kept candidate.
 
 ### Quoted header example
 
@@ -60,10 +60,10 @@ The separator applies to the contacts input (`-i`) only. The calendar export rea
 - A comma-separated and a tab-separated copy of `tests/fixtures/example.csv` produce the same calendar as the semicolon version.
 - A semicolon-separated input produces a cleaned CSV that is byte-identical to the current output (apart from the usual `csv` quoting, which is unchanged).
 - A comma-separated input produces a cleaned CSV that uses `,` as the separator.
-- `--delimiter` overrides detection: a file whose detection would be ambiguous is read correctly when `--delimiter` is given.
+- `--delimiter` overrides detection: a file whose detection is ambiguous is read correctly when `--delimiter` is given.
 - A header with quoted fields, `First Name;"Last, First, Middle, Suffix";Birthday`, is detected as `;`.
 - A file with no detectable separator exits with code 1 and the message in the spec.
-- An ambiguous file exits with code 1 and the message in the spec.
+- An ambiguous file (two or more candidates each have a `First Name`, `Last Name` or `Birthday` field) exits with code 1 and prints the `could not detect` message.
 - An invalid `--delimiter` value exits with code 2.
 - The `--calendar` export is read the same as before.
 
@@ -128,7 +128,7 @@ python3 contactsToCalendar.py [-i FILE] [--delimiter VALUE] [--csv [FILE]] [--ic
 - With neither option, the calendar is written (same as `--ics`).
 - `--help` lists all options and exits with code 0.
 - A missing input file prints `Error: input file not found: <name>` to stderr and exits with code 1.
-- A separator that cannot be detected or is ambiguous exits with code 1 (see [Column separator](#column-separator)).
+- A separator that cannot be detected, or is ambiguous, exits with code 1 (see [Column separator](#column-separator)).
 
 ## Calendar dedupe (`--calendar`)
 
