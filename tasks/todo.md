@@ -200,3 +200,127 @@ Each task is implemented by a subagent, one at a time. After each task the main 
 - [x] `python3 tests/run_tests.py` passes
 - [ ] Diff reviewed against `docs/SPEC.md`
 - [x] No real names or personal data in any new file
+
+
+---
+
+## Column separators (issue #4)
+
+Branch: `feature/other-csv-separators`. Spec: `docs/SPEC.md`. Plan: `tasks/plan.md` (section "Implementation Plan: Column separators").
+
+Each task is implemented by a subagent, one at a time.
+
+### Task 7: `detect_delimiter(path)` and its error messages
+
+**Description:** Add `detect_delimiter(path)`. It reads the first line with `utf-8-sig`, removing the byte-order mark, splits it with `;`, `,` and tab using the `csv` module, and keeps candidates with more than one column. It returns the single candidate with the most columns. It raises `ValueError` with `could not detect the column separator in <file>; use --delimiter` when no candidate has more than one column, and `ambiguous column separator in <file>; use --delimiter` when two or more tie for the most columns.
+
+**Acceptance criteria:**
+- [x] A `;` header returns `;`, a `,` header returns `,`, a tab header returns tab
+- [x] A header with one column raises the "could not detect" error
+- [x] A header where two separators give the same most columns raises the "ambiguous" error
+- [x] A byte-order mark does not affect the result
+
+**Verification:**
+- [x] Unit tests for each criterion (temporary files in a temp directory)
+- [x] `python3 -m unittest discover -s tests` passes
+- [x] `ruff check .` passes
+
+**Dependencies:** None
+
+**Files likely touched:** `contactsToCalendar.py`, `tests/test_contacts_to_calendar.py`
+
+**Estimated scope:** Small
+
+---
+
+### Task 8: `--delimiter` option and the value mapping
+
+**Description:** Add `--delimiter VALUE` to `parse_args` with choices `;`, `,` and `tab` (case-insensitive). Map `tab` to the tab character. The option appears in `--help`.
+
+**Acceptance criteria:**
+- [x] `--delimiter tab` gives a tab character; `;` and `,` give themselves
+- [x] `--delimiter TAB` (upper case) also works
+- [x] An invalid value such as `|` exits with code 2
+- [x] `--delimiter` is listed in `--help`
+
+**Verification:**
+- [x] CLI tests with subprocess for each case
+- [x] `python3 -m unittest discover -s tests` passes
+- [x] `ruff check .` passes
+
+**Dependencies:** Task 7
+
+**Files likely touched:** `contactsToCalendar.py`, `tests/test_contacts_to_calendar.py`
+
+**Estimated scope:** Small
+
+---
+
+### Checkpoint: Detection ready
+
+- [x] Tasks 7–8 complete
+- [x] All tests pass; `ruff check .` passes
+
+---
+
+### Task 9: Use the separator in reading, cleaning and the CLI
+
+**Description:** Add `delimiter=';'` to `build_birthday_events` and `clean_contacts_csv`, and use it for the reader and writer. In `main`, when `--delimiter` is given use it, otherwise call `detect_delimiter(args.input)`. Catch the `ValueError` from detection, print it to stderr as `Error: <message>`, and exit with code 1, before writing anything. Pass the resolved separator to both functions.
+
+**Acceptance criteria:**
+- [x] A comma copy and a tab copy of `tests/fixtures/example.csv` give the same `birthdays.ics` events as the semicolon original
+- [x] A comma input gives a cleaned CSV with `,` as separator and the header `First Name,Middle Name,Last Name,Birthday`
+- [x] A semicolon input gives a cleaned CSV byte-identical to the current output
+- [x] `--delimiter` overrides a file whose detection is ambiguous
+- [x] A file with no detectable separator exits with code 1 and writes no output
+- [x] An ambiguous file exits with code 1 and writes no output
+- [x] The `--calendar` export is unaffected (existing tests still pass)
+
+**Verification:**
+- [x] Tests for each criterion, using fixture copies made in the test's temp directory
+- [x] `python3 -m unittest discover -s tests` passes, with the existing tests unchanged
+- [x] `ruff check .` passes
+- [x] Output of a semicolon run before and after the change is identical (scratchpad comparison)
+
+**Dependencies:** Tasks 7–8
+
+**Files likely touched:** `contactsToCalendar.py`, `tests/test_contacts_to_calendar.py`
+
+**Estimated scope:** Medium
+
+---
+
+### Checkpoint: Feature complete
+
+- [x] Task 9 complete
+- [x] Every success criterion in the spec's "Column separator" section has a passing test
+- [x] `ruff check .` and the full suite pass
+
+---
+
+### Task 10: README options table and usage
+
+**Description:** Add a `--delimiter VALUE` row to the README options table, and a short note in the usage section that the separator is detected and can be set with `--delimiter` (`;`, `,` or `tab`). Leave the rest of the README unchanged.
+
+**Acceptance criteria:**
+- [x] The options table lists `--delimiter`
+- [x] The usage section mentions detection and the override
+
+**Verification:**
+- [x] Manual read of the changed README sections
+- [x] `ruff check .` passes
+
+**Dependencies:** Task 9
+
+**Files likely touched:** `README.md`
+
+**Estimated scope:** XS
+
+---
+
+### Checkpoint: Ready for PR
+
+- [x] All tasks complete
+- [x] `ruff check .` passes
+- [x] `python3 -m unittest discover -s tests` passes
+- [ ] Diff reviewed against `docs/SPEC.md`

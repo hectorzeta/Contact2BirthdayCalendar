@@ -17,8 +17,8 @@ Repo: `hectorzeta/Contact2BirthdayCalendar` on GitHub (private).
 - Commit only when the user asks. Push only when the user asks.
 - Work on a feature branch. Do not push to `main` on GitHub. Code reaches `main` only through a merged PR.
 - Each new feature is implemented on its own branch, created from `main`. Its PR is the way code gets into `main`.
-- Commit messages end with: `Co-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>`
-- PR descriptions end with: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
+- Commit messages end with: `Co-Authored-By: Claude <model used, e.g. Haiku 5.5>`
+- PR descriptions end with: `🤖 Generated with [Claude Code] (<model used, e.g. Haiku 5.5>)`
 - Do not change the user's global git config. If HTTPS auth is needed, pass the GitHub CLI credential helper for that one command:
   `git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push ...`
 - Ask before any action that makes something public or creates a new repository.

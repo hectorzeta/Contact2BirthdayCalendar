@@ -10,10 +10,62 @@ A standard-library Python tool that turns a semicolon-delimited contacts CSV (Go
 
 ## Input
 
-- Semicolon-delimited CSV with a header row.
+- CSV with a header row. The column separator is `;`, `,` or tab (see [Column separator](#column-separator)).
 - Read with `utf-8-sig`, so a byte-order mark from exports is handled.
 - Relevant columns: `First Name`, `Middle Name`, `Last Name`, `Birthday`. Other columns are ignored.
-- A missing column is treated as empty.
+- A missing column is treated as empty, and a warning is printed to stderr for the expected columns (see below).
+  - The header is checked once per run for `First Name`, `Last Name` and `Birthday`. The header is split with the quote rules in [Column separator](#column-separator).
+  - For each missing column the message is `Warning: column '<name>' not found in <file>; its values will be empty`.
+  - The run continues and the exit code is not changed.
+  - The warning applies whether the separator was detected or given with `--delimiter`.
+
+## Column separator
+
+The separator applies to the contacts input (`-i`) only. The calendar export read by `--calendar` is always `.ics`.
+
+### Detection (default)
+
+1. Read the first line (the header) of the input, after removing any byte-order mark.
+2. Split that line with each candidate separator (`;`, `,`, tab), respecting double quotes in the header:
+   - A double quote switches "inside quotes" on or off, wherever it appears in the field.
+   - A separator inside quotes is not a separator.
+   - A doubled quote (`""`) inside quotes is a literal quote and does not end the quoted part.
+   - Surrounding quotes are removed from the field names.
+   - A quote that is never closed quotes the rest of the line, so the separators after it are not counted. For example, `First Name;Last"Name;Birthday` has no `Birthday` column when split with `;`, and detection fails with the "could not detect" error.
+3. If two or more candidates each have at least one field named `First Name`, `Last Name` or `Birthday` (spaces ignored, case-insensitive), the separator is ambiguous: stop with `Error: could not detect the column separator in <file>; use --delimiter` on stderr, exit code 1. This is checked before the rules below. It also covers a tie between candidates that would otherwise both be kept.
+4. Keep the candidates whose split header has a column named `Birthday` and at least one column named `First Name` or `Last Name` (spaces around the names are ignored, case-insensitive). A candidate must have more than one column to be kept.
+5. If no candidate is kept, stop with `Error: could not detect the column separator in <file>; use --delimiter` on stderr, exit code 1.
+6. Otherwise, use the single kept candidate.
+
+### Quoted header example
+
+- `First Name;"Last, First, Middle, Suffix";Birthday` splits into 3 columns with `;` and is detected as `;`.
+- Its commas are inside quotes and are not counted for `,`.
+
+### Explicit (`--delimiter`)
+
+- `--delimiter VALUE` sets the separator and skips detection. `VALUE` is `;`, `,` or `tab` (case-insensitive).
+- Any other value is rejected by the argument parser, which exits with code 2.
+
+### Data rows
+
+- The data rows after the header are read with the `csv` module, which handles quoted fields that start after a separator.
+
+### Output
+
+- The cleaned CSV (`--csv`) uses the same separator as the input. The header and the four columns are unchanged.
+
+### Success criteria
+
+- A comma-separated and a tab-separated copy of `tests/fixtures/example.csv` produce the same calendar as the semicolon version.
+- A semicolon-separated input produces a cleaned CSV that is byte-identical to the current output (apart from the usual `csv` quoting, which is unchanged).
+- A comma-separated input produces a cleaned CSV that uses `,` as the separator.
+- `--delimiter` overrides detection: a file whose detection is ambiguous is read correctly when `--delimiter` is given.
+- A header with quoted fields, `First Name;"Last, First, Middle, Suffix";Birthday`, is detected as `;`.
+- A file with no detectable separator exits with code 1 and the message in the spec.
+- An ambiguous file (two or more candidates each have a `First Name`, `Last Name` or `Birthday` field) exits with code 1 and prints the `could not detect` message.
+- An invalid `--delimiter` value exits with code 2.
+- The `--calendar` export is read the same as before.
 
 ## Birthday formats
 
@@ -52,7 +104,7 @@ A standard-library Python tool that turns a semicolon-delimited contacts CSV (Go
 
 ## Cleaned CSV output (`--csv`)
 
-- Semicolon-delimited, with the header `First Name;Middle Name;Last Name;Birthday`.
+- Uses the input's separator (see [Column separator](#column-separator)). The header is `First Name<sep>Middle Name<sep>Last Name<sep>Birthday`, for example `First Name;Middle Name;Last Name;Birthday` for a semicolon file.
 - Only those four columns, in that order.
 - A row is dropped when all four values are empty after trimming spaces.
 - Output uses the standard `csv` quoting rules.
@@ -61,12 +113,13 @@ A standard-library Python tool that turns a semicolon-delimited contacts CSV (Go
 ## Command line
 
 ```
-python3 contactsToCalendar.py [-i FILE] [--csv [FILE]] [--ics [FILE]] [--calendar FILE]
+python3 contactsToCalendar.py [-i FILE] [--delimiter VALUE] [--csv [FILE]] [--ics [FILE]] [--calendar FILE]
 ```
 
 | Option | Meaning | Default |
 |---|---|---|
 | `-i`, `--input FILE` | Contacts CSV to read | `contacts.csv` |
+| `--delimiter VALUE` | Column separator of the input: `;`, `,` or `tab`. Skips detection | detected |
 | `--csv [FILE]` | Write the cleaned CSV | `contacts_clean.csv` |
 | `--ics [FILE]` | Write the calendar | `birthdays.ics` |
 | `--calendar FILE` | Exported calendar to compare against. Also writes `birthdays_new.ics` (see [Calendar dedupe](#calendar-dedupe---calendar)) | none |
@@ -75,6 +128,7 @@ python3 contactsToCalendar.py [-i FILE] [--csv [FILE]] [--ics [FILE]] [--calenda
 - With neither option, the calendar is written (same as `--ics`).
 - `--help` lists all options and exits with code 0.
 - A missing input file prints `Error: input file not found: <name>` to stderr and exits with code 1.
+- A separator that cannot be detected, or is ambiguous, exits with code 1 (see [Column separator](#column-separator)).
 
 ## Calendar dedupe (`--calendar`)
 

@@ -853,5 +853,408 @@ class DedupeTests(unittest.TestCase):
         self.assertEqual(matched, 0)
 
 
+class DelimiterDetectionTests(ScratchMixin, unittest.TestCase):
+    """detect_delimiter() on small header-only files with fictional column names."""
+
+    def test_semicolon_header_gives_semicolon(self):
+        path = self.write_csv('contacts.csv', 'First Name;Last Name;Birthday\n')
+        self.assertEqual(cal.detect_delimiter(path), ';')
+
+    def test_comma_header_gives_comma(self):
+        path = self.write_csv('contacts.csv', 'First Name,Last Name,Birthday\n')
+        self.assertEqual(cal.detect_delimiter(path), ',')
+
+    def test_tab_header_gives_tab(self):
+        path = self.write_csv('contacts.csv', 'First Name\tLast Name\tBirthday\n')
+        self.assertEqual(cal.detect_delimiter(path), '\t')
+
+    def test_one_column_header_raises_could_not_detect(self):
+        path = self.write_csv('contacts.csv', 'First Name\n')
+        with self.assertRaises(ValueError) as ctx:
+            cal.detect_delimiter(path)
+        self.assertIn('could not detect the column separator', str(ctx.exception))
+
+    def test_tie_for_most_columns_raises_could_not_detect(self):
+        # ';' and ',' both give 3 columns with Birthday and First Name
+        path = self.write_csv('contacts.csv', 'First Name;Birthday;,First Name,Birthday\n')
+        with self.assertRaises(ValueError) as ctx:
+            cal.detect_delimiter(path)
+        self.assertIn('could not detect the column separator', str(ctx.exception))
+
+    def test_birthday_without_name_column_raises_could_not_detect(self):
+        # Both ';' and ',' have Birthday, but neither has First Name or Last Name
+        path = self.write_csv('contacts.csv', 'Birthday;Name,Birthday\n')
+        with self.assertRaises(ValueError) as ctx:
+            cal.detect_delimiter(path)
+        self.assertIn('could not detect the column separator', str(ctx.exception))
+
+    def test_first_name_and_birthday_without_exact_birthday_for_any_separator_raises(self):
+        # ';' gives ['First Name', 'Birthday,Last Name'] and ',' gives ['First Name;Birthday', 'Last Name']:
+        # neither has an exact Birthday column, so no candidate is kept
+        path = self.write_csv('contacts.csv', 'First Name;Birthday,Last Name\n')
+        with self.assertRaises(ValueError) as ctx:
+            cal.detect_delimiter(path)
+        self.assertIn('could not detect the column separator', str(ctx.exception))
+
+    def test_last_name_and_birthday_without_exact_birthday_for_any_separator_raises(self):
+        # ';' gives ['Last Name,Birthday', 'Notes'] and ',' gives ['Last Name', 'Birthday;Notes']
+        path = self.write_csv('contacts.csv', 'Last Name,Birthday;Notes\n')
+        with self.assertRaises(ValueError) as ctx:
+            cal.detect_delimiter(path)
+        self.assertIn('could not detect the column separator', str(ctx.exception))
+
+    def test_stray_separator_in_one_field_still_detects_comma(self):
+        # ',' gives ['First Name', 'Notes;x;y;z', 'Birthday'] (3 columns, exact Birthday and First Name).
+        # ';' gives ['First Name,Notes', 'x', 'y', 'z,Birthday'] with no exact Birthday, so it is not kept.
+        path = self.write_csv('contacts.csv', 'First Name,Notes;x;y;z,Birthday\n')
+        self.assertEqual(cal.detect_delimiter(path), ',')
+
+    def test_byte_order_mark_does_not_change_result(self):
+        path = self.write_csv('contacts.csv', '﻿First Name;Last Name;Birthday\n')
+        self.assertEqual(cal.detect_delimiter(path), ';')
+
+    def test_quoted_comma_inside_field_does_not_win(self):
+        path = self.write_csv('contacts.csv', '"Last, Name";First Name;Birthday\n')
+        self.assertEqual(cal.detect_delimiter(path), ';')
+
+    def test_error_message_uses_path_as_given(self):
+        path = self.write_csv('contacts.csv', 'First Name\n')
+        with self.assertRaises(ValueError) as ctx:
+            cal.detect_delimiter(path)
+        self.assertIn(f'in {path}; use --delimiter', str(ctx.exception))
+
+    def test_quoted_header_with_commas_gives_semicolon(self):
+        # Read as comma-separated this header has 4 fields, but no field is Birthday
+        path = self.write_csv('contacts.csv', 'First Name;"Last, First, Middle, Suffix";Birthday\n')
+        self.assertEqual(cal.detect_delimiter(path), ';')
+
+    def test_comma_header_with_birthday_gives_comma(self):
+        path = self.write_csv('contacts.csv', 'First Name,Last Name,Birthday\n')
+        self.assertEqual(cal.detect_delimiter(path), ',')
+
+    def test_header_without_birthday_raises_could_not_detect(self):
+        # ';' gives 3 columns, but none is Birthday, so no candidate is kept
+        path = self.write_csv('contacts.csv', 'Name;Surname;Date\n')
+        with self.assertRaises(ValueError) as ctx:
+            cal.detect_delimiter(path)
+        self.assertIn('could not detect the column separator', str(ctx.exception))
+
+    def test_two_separators_with_birthday_tie_raises_could_not_detect(self):
+        # ';' gives ['First Name', 'Birthday', ',First Name,Birthday'] and ',' gives ['First Name;Birthday;', 'First Name', 'Birthday']: 3 columns each
+        path = self.write_csv('contacts.csv', 'First Name;Birthday;,First Name,Birthday\n')
+        with self.assertRaises(ValueError) as ctx:
+            cal.detect_delimiter(path)
+        self.assertIn('could not detect the column separator', str(ctx.exception))
+
+    def test_name_in_one_separator_and_birthday_in_other_raises_could_not_detect(self):
+        # ';' gives ['First Name', 'Notes,Birthday'] (First Name only) and ',' gives ['First Name;Notes', 'Birthday']
+        # (Birthday only). Both candidates have a name field, so rule 3 stops detection even though neither is kept.
+        path = self.write_csv('contacts.csv', 'First Name;Notes,Birthday\n')
+        with self.assertRaises(ValueError) as ctx:
+            cal.detect_delimiter(path)
+        self.assertIn('could not detect the column separator', str(ctx.exception))
+
+
+class DelimiterOptionTests(ScratchMixin, unittest.TestCase):
+    """The --delimiter option is parsed and validated by the command line."""
+
+    def run_script(self, *args, cwd=None):
+        return subprocess.run([sys.executable, SCRIPT, *args], cwd=cwd or self.tmp,
+                              capture_output=True, text=True)
+
+    def test_help_lists_delimiter_option(self):
+        result = self.run_script('--help')
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('--delimiter', result.stdout)
+
+    def test_semicolon_delimiter_is_accepted(self):
+        result = self.run_script('-i', EXAMPLE_CSV, '--delimiter', ';', '--ics')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_comma_delimiter_is_accepted(self):
+        result = self.run_script('-i', EXAMPLE_CSV, '--delimiter', ',', '--ics')
+        self.assertNotEqual(result.returncode, 2, result.stderr)
+
+    def test_tab_delimiter_is_accepted(self):
+        result = self.run_script('-i', EXAMPLE_CSV, '--delimiter', 'tab', '--ics')
+        self.assertNotEqual(result.returncode, 2, result.stderr)
+
+    def test_upper_case_tab_delimiter_is_accepted(self):
+        result = self.run_script('-i', EXAMPLE_CSV, '--delimiter', 'TAB', '--ics')
+        self.assertNotEqual(result.returncode, 2, result.stderr)
+
+    def test_invalid_delimiter_exits_two_with_message(self):
+        result = self.run_script('-i', EXAMPLE_CSV, '--delimiter', '|', '--ics')
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('delimiter', result.stderr)
+
+
+class SeparatorTests(ScratchMixin, unittest.TestCase):
+    """The column separator is used for reading and cleaning, and failures write nothing."""
+
+    def run_script(self, *args, cwd=None):
+        return subprocess.run([sys.executable, SCRIPT, *args], cwd=cwd or self.tmp,
+                              capture_output=True, text=True)
+
+    def make_copy(self, name, delimiter):
+        """Copy example.csv with another separator. The source has no commas or tabs in fields."""
+        with open(EXAMPLE_CSV, newline='', encoding='utf-8-sig') as f:
+            rows = list(csv.reader(f, delimiter=';'))
+        path = os.path.join(self.tmp, name)
+        with open(path, 'w', encoding='utf-8-sig', newline='') as f:
+            csv.writer(f, delimiter=delimiter, lineterminator='\n').writerows(rows)
+        return path
+
+    def ics_summaries_and_starts(self, path):
+        return [(event['SUMMARY'], event['DTSTART']) for event in parse_ics_events(path)]
+
+    def test_comma_and_tab_copies_give_the_same_events_as_semicolon(self):
+        comma_csv = self.make_copy('comma.csv', ',')
+        tab_csv = self.make_copy('tab.csv', '\t')
+        expected = os.path.join(self.tmp, 'semicolon.ics')
+        result = self.run_script('-i', EXAMPLE_CSV, '--ics', expected)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name, path in (('comma', comma_csv), ('tab', tab_csv)):
+            out = os.path.join(self.tmp, f'{name}.ics')
+            result = self.run_script('-i', path, '--ics', out)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.ics_summaries_and_starts(out),
+                             self.ics_summaries_and_starts(expected), name)
+
+    def test_comma_input_gives_cleaned_csv_with_comma_separator(self):
+        comma_csv = self.make_copy('comma.csv', ',')
+        out = os.path.join(self.tmp, 'clean.csv')
+        result = self.run_script('-i', comma_csv, '--csv', out)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with open(out, encoding='utf-8') as f:
+            header = f.readline().rstrip('\r\n')
+        self.assertEqual(header, 'First Name,Middle Name,Last Name,Birthday')
+        with open(out, newline='', encoding='utf-8') as f:
+            rows = list(csv.DictReader(f, delimiter=','))
+        self.assertEqual(rows, read_clean_rows(EXPECTED_CLEAN_CSV))
+        self.assertEqual([r['First Name'] for r in rows],
+                         ['Robert', 'John', 'Margaret', 'Alexandra', 'Bertha', 'Leo', 'Lily'])
+
+    def test_semicolon_input_cleaned_csv_is_byte_identical_to_expected(self):
+        out = os.path.join(self.tmp, 'clean.csv')
+        result = self.run_script('-i', EXAMPLE_CSV, '--csv', out)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with open(out, 'rb') as f:
+            produced = f.read()
+        with open(EXPECTED_CLEAN_CSV, 'rb') as f:
+            expected = f.read()
+        self.assertEqual(produced, expected)
+
+    def test_delimiter_option_overrides_detection(self):
+        # The header has one ';' and one ',' after a 3-comma prefix, so both give 4 columns
+        path = self.write_csv('contacts.csv',
+                              'Tags,Labels,Group,Notes;First Name;Last Name;Birthday\n'
+                              'x,y,z,w;Ann;Lee;1990-05-01\n')
+        out = os.path.join(self.tmp, 'clean.csv')
+        result = self.run_script('-i', path, '--delimiter', ';', '--csv', out)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with open(out, encoding='utf-8') as f:
+            header = f.readline().rstrip('\r\n')
+        self.assertEqual(header, HEADER)
+        self.assertEqual(read_clean_rows(out),
+                         [{'First Name': 'Ann', 'Middle Name': '', 'Last Name': 'Lee',
+                           'Birthday': '1990-05-01'}])
+
+    def test_no_detectable_separator_exits_one_and_writes_nothing(self):
+        path = self.write_csv('contacts.csv', 'First Name\nAnn\n')
+        csv_out = os.path.join(self.tmp, 'clean.csv')
+        ics_out = os.path.join(self.tmp, 'birthdays.ics')
+        result = self.run_script('-i', path, '--csv', csv_out, '--ics', ics_out)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('Error: could not detect the column separator', result.stderr)
+        self.assertFalse(os.path.exists(csv_out))
+        self.assertFalse(os.path.exists(ics_out))
+
+    def test_could_not_detect_separator_for_tie_exits_one_and_writes_nothing(self):
+        path = self.write_csv('contacts.csv', 'First Name;Birthday;,First Name,Birthday\nAnn;Lee,1990-05-01\n')
+        csv_out = os.path.join(self.tmp, 'clean.csv')
+        ics_out = os.path.join(self.tmp, 'birthdays.ics')
+        result = self.run_script('-i', path, '--csv', csv_out, '--ics', ics_out)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('Error: could not detect the column separator', result.stderr)
+        self.assertFalse(os.path.exists(csv_out))
+        self.assertFalse(os.path.exists(ics_out))
+
+    def test_could_not_detect_separator_for_tie_writes_nothing_with_calendar_export(self):
+        path = self.write_csv('contacts.csv', 'First Name;Birthday;,First Name,Birthday\nAnn;Lee,1990-05-01\n')
+        csv_out = os.path.join(self.tmp, 'clean.csv')
+        result = self.run_script('-i', path, '--calendar', os.path.join(FIXTURES, 'export.ics'),
+                                 '--csv', csv_out)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('Error: could not detect the column separator', result.stderr)
+        for name in ('clean.csv', 'birthdays.ics', 'birthdays_new.ics'):
+            self.assertFalse(os.path.exists(os.path.join(self.tmp, name)), name)
+
+    def test_missing_input_detected_path_exits_one_with_message(self):
+        result = self.run_script('-i', os.path.join(self.tmp, 'nope.csv'), '--csv')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('Error: input file not found', result.stderr)
+
+    def test_missing_input_with_delimiter_exits_one_with_message(self):
+        result = self.run_script('-i', os.path.join(self.tmp, 'nope.csv'), '--delimiter', ';', '--ics')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('Error: input file not found', result.stderr)
+
+
+class MissingColumnWarningTests(ScratchMixin, unittest.TestCase):
+    """A missing expected column prints one warning on stderr and the run continues."""
+
+    def run_script(self, *args, cwd=None):
+        return subprocess.run([sys.executable, SCRIPT, *args], cwd=cwd or self.tmp,
+                              capture_output=True, text=True)
+
+    def warnings(self, result):
+        return [line for line in result.stderr.splitlines() if line.startswith('Warning')]
+
+    def test_exact_header_prints_no_warning(self):
+        path = self.write_csv('contacts.csv',
+                              'First Name;Last Name;Birthday\nAnn;Lee;1990-05-01\n')
+        result = self.run_script('-i', path, '--csv', os.path.join(self.tmp, 'clean.csv'))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.warnings(result), [])
+
+    def test_quoted_header_reports_only_last_name(self):
+        path = self.write_csv('contacts.csv',
+                              'First Name;"Last, First, Middle, Suffix";Birthday\n'
+                              'Ann;Lee, Ann, Q, Jr;1990-05-01\n')
+        result = self.run_script('-i', path, '--ics', os.path.join(self.tmp, 'birthdays.ics'))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.warnings(result),
+                         [f"Warning: column 'Last Name' not found in {path}; "
+                          "its values will be empty"])
+
+    def test_missing_birthday_column_prints_warning_and_exits_zero(self):
+        path = self.write_csv('contacts.csv',
+                              'First Name;Last Name;Nickname\nAnn;Lee;Annie\n')
+        result = self.run_script('-i', path, '--delimiter', ';',
+                                 '--csv', os.path.join(self.tmp, 'clean.csv'))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.warnings(result),
+                         [f"Warning: column 'Birthday' not found in {path}; "
+                          "its values will be empty"])
+
+    def test_delimiter_given_with_missing_name_columns_warns_and_exits_zero(self):
+        path = self.write_csv('contacts.csv', 'Birthday;Notes\n1990-05-01;Friend\n')
+        result = self.run_script('-i', path, '--delimiter', ';',
+                                 '--csv', os.path.join(self.tmp, 'clean.csv'))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.warnings(result),
+                         [f"Warning: column 'First Name' not found in {path}; "
+                          "its values will be empty",
+                          f"Warning: column 'Last Name' not found in {path}; "
+                          "its values will be empty"])
+
+    def test_missing_middle_name_prints_no_warning(self):
+        path = self.write_csv('contacts.csv',
+                              'First Name;Last Name;Birthday\nAnn;Lee;1990-05-01\n')
+        result = self.run_script('-i', path, '--ics', os.path.join(self.tmp, 'birthdays.ics'))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('Middle Name', result.stderr)
+        self.assertEqual(self.warnings(result), [])
+
+    def test_missing_input_file_keeps_error_and_no_warning(self):
+        result = self.run_script('-i', os.path.join(self.tmp, 'nope.csv'), '--csv')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('Error: input file not found', result.stderr)
+        self.assertNotIn('Warning', result.stderr)
+
+    def test_warning_does_not_stop_csv_and_ics_output(self):
+        path = self.write_csv('contacts.csv',
+                              'First Name;"Last, First, Middle, Suffix";Birthday\n'
+                              'Ann;Lee, Ann, Q, Jr;1990-05-01\n')
+        csv_out = os.path.join(self.tmp, 'clean.csv')
+        ics_out = os.path.join(self.tmp, 'birthdays.ics')
+        result = self.run_script('-i', path, '--csv', csv_out, '--ics', ics_out)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.warnings(result)), 1)
+        self.assertTrue(os.path.exists(csv_out))
+        self.assertTrue(os.path.exists(ics_out))
+
+    def test_warnings_are_printed_in_expected_order(self):
+        path = self.write_csv('contacts.csv', 'Middle Name;Birthday\nQ;1990-05-01\n')
+        result = self.run_script('-i', path, '--delimiter', ';', '--ics',
+                                 os.path.join(self.tmp, 'birthdays.ics'))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.warnings(result),
+                         [f"Warning: column 'First Name' not found in {path}; "
+                          "its values will be empty",
+                          f"Warning: column 'Last Name' not found in {path}; "
+                          "its values will be empty"])
+
+
+class QuotedHeaderTests(ScratchMixin, unittest.TestCase):
+    """split_header_fields() and the header checks that use it. Fictional names only."""
+
+    QUOTED_HEADER = 'First Name;"Last, First, Middle, Suffix";Birthday'
+
+    def run_script(self, *args, cwd=None):
+        return subprocess.run([sys.executable, SCRIPT, *args], cwd=cwd or self.tmp,
+                              capture_output=True, text=True)
+
+    def test_quoted_field_with_commas_is_one_field(self):
+        self.assertEqual(cal.split_header_fields(self.QUOTED_HEADER, ';'),
+                         ['First Name', 'Last, First, Middle, Suffix', 'Birthday'])
+
+    def test_commas_inside_quotes_are_not_separators_for_comma(self):
+        # The quotes are removed, and the ';' outside the quotes is not a separator for ','
+        self.assertEqual(cal.split_header_fields(self.QUOTED_HEADER, ','),
+                         ['First Name;Last, First, Middle, Suffix;Birthday'])
+
+    def test_doubled_quote_inside_quotes_is_literal(self):
+        self.assertEqual(cal.split_header_fields('A;"say ""hi"", now";Birthday', ';'),
+                         ['A', 'say "hi", now', 'Birthday'])
+
+    def test_quote_in_middle_of_field_toggles_quoted_part(self):
+        # The quote opens a quoted part at 'Last"', so the ';' after it is inside quotes
+        self.assertEqual(cal.split_header_fields('First Name;Last"Name;Birthday', ';'),
+                         ['First Name', 'LastName;Birthday'])
+
+    def test_spaces_around_names_are_stripped(self):
+        self.assertEqual(cal.split_header_fields(' First Name ; "Last Name" ;Birthday ', ';'),
+                         ['First Name', 'Last Name', 'Birthday'])
+
+    def test_empty_line_gives_one_empty_field(self):
+        self.assertEqual(cal.split_header_fields('', ';'), [''])
+
+    def test_detect_delimiter_on_quoted_header_gives_semicolon(self):
+        path = self.write_csv('contacts.csv', self.QUOTED_HEADER + '\n')
+        self.assertEqual(cal.detect_delimiter(path), ';')
+
+    def test_detect_delimiter_mid_field_quote_raises_could_not_detect(self):
+        # ';' gives no Birthday column, ',' and tab give one column each
+        path = self.write_csv('contacts.csv', 'First Name;Last"Name;Birthday\n')
+        with self.assertRaises(ValueError) as ctx:
+            cal.detect_delimiter(path)
+        self.assertIn('could not detect the column separator', str(ctx.exception))
+
+    def test_empty_header_line_raises_could_not_detect(self):
+        path = self.write_csv('contacts.csv', '\n')
+        with self.assertRaises(ValueError) as ctx:
+            cal.detect_delimiter(path)
+        self.assertIn('could not detect the column separator', str(ctx.exception))
+
+    def test_missing_expected_columns_for_quoted_header_reports_last_name(self):
+        path = self.write_csv('contacts.csv', self.QUOTED_HEADER + '\nAnn;Lee, Ann, Jo, Sr;1990-05-01\n')
+        self.assertEqual(cal.missing_expected_columns(path, ';'), ['Last Name'])
+
+    def test_cli_quoted_header_reads_birthday_and_warns_for_last_name(self):
+        path = self.write_csv('contacts.csv',
+                              self.QUOTED_HEADER + '\nAnn;Lee, Ann, Jo, Sr;1990-05-01\n')
+        csv_out = os.path.join(self.tmp, 'clean.csv')
+        result = self.run_script('-i', path, '--csv', csv_out)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([line for line in result.stderr.splitlines() if line.startswith('Warning')],
+                         [f"Warning: column 'Last Name' not found in {path}; "
+                          "its values will be empty"])
+        with open(csv_out, encoding='utf-8', newline='') as f:
+            rows = list(csv.reader(f, delimiter=';'))
+        self.assertEqual(rows[1], ['Ann', '', '', '1990-05-01'])
+
+
 if __name__ == '__main__':
     unittest.main()
