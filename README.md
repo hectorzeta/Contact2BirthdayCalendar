@@ -75,6 +75,7 @@ Run `python3 contactsToCalendar.py --help` for all options:
 | `--csv [FILE]` | Write a cleaned CSV, dropping empty rows (default `contacts_clean.csv`) |
 | `--ics [FILE]` | Write a birthday calendar (default `birthdays.ics`). This is also the output when neither `--csv` nor `--ics` is given. |
 | `--calendar FILE` | Exported calendar (`.ics`) to compare against. Also writes `birthdays_new.ics`, the birthdays not already in that calendar. |
+| `--prodid VALUE` | `PRODID` line of the calendar files, for example `--prodid "-//My Company//My App//EN"`. Default `-//HZ//HZ//EN`. Must not be empty or contain line breaks. A value starting with `-` needs the form `--prodid=VALUE`. |
 
 ### Tests
 
