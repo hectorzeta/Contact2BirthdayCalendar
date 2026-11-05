@@ -14,7 +14,7 @@ A standard-library Python tool that turns a semicolon-delimited contacts CSV (Go
 - Read with `utf-8-sig`, so a byte-order mark from exports is handled.
 - Relevant columns: `First Name`, `Middle Name`, `Last Name`, `Birthday`. Other columns are ignored.
 - A missing column is treated as empty, and a warning is printed to stderr for the expected columns (see below).
-  - The header is checked once per run for `First Name`, `Last Name` and `Birthday`.
+  - The header is checked once per run for `First Name`, `Last Name` and `Birthday`. The header is split with the quote rules in [Column separator](#column-separator).
   - For each missing column the message is `Warning: column '<name>' not found in <file>; its values will be empty`.
   - The run continues and the exit code is not changed.
 
@@ -25,16 +25,30 @@ The separator applies to the contacts input (`-i`) only. The calendar export rea
 ### Detection (default)
 
 1. Read the first line (the header) of the input, after removing any byte-order mark.
-2. Split that line with each candidate separator (`;`, `,`, tab) using the `csv` module.
+2. Split that line with each candidate separator (`;`, `,`, tab), respecting double quotes in the header:
+   - A double quote switches "inside quotes" on or off, wherever it appears in the field.
+   - A separator inside quotes is not a separator.
+   - A doubled quote (`""`) inside quotes is a literal quote and does not end the quoted part.
+   - Surrounding quotes are removed from the field names.
+   - A quote that is never closed quotes the rest of the line, so the separators after it are not counted. For example, `First Name;Last"Name;Birthday` has no `Birthday` column when split with `;`, and detection fails with the "could not detect" error.
 3. Keep the candidates that give more than one column and whose split header has a column named `Birthday` (spaces around the name are ignored, case-insensitive).
 4. If no candidate is kept, stop with `Error: could not detect the column separator in <file>; use --delimiter` on stderr, exit code 1.
 5. If one candidate gives more columns than every other, use it.
 6. If two or more candidates tie for the most columns, stop with `Error: ambiguous column separator in <file>; use --delimiter` on stderr, exit code 1.
 
+### Quoted header example
+
+- `First Name;"Last, First, Middle, Suffix";Birthday` splits into 3 columns with `;` and is detected as `;`.
+- Its commas are inside quotes and are not counted for `,`.
+
 ### Explicit (`--delimiter`)
 
 - `--delimiter VALUE` sets the separator and skips detection. `VALUE` is `;`, `,` or `tab` (case-insensitive).
 - Any other value is rejected by the argument parser, which exits with code 2.
+
+### Data rows
+
+- The data rows after the header are read with the `csv` module, which handles quoted fields that start after a separator.
 
 ### Output
 

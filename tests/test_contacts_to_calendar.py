@@ -1138,5 +1138,74 @@ class MissingColumnWarningTests(ScratchMixin, unittest.TestCase):
                           "its values will be empty"])
 
 
+class QuotedHeaderTests(ScratchMixin, unittest.TestCase):
+    """split_header_fields() and the header checks that use it. Fictional names only."""
+
+    QUOTED_HEADER = 'First Name;"Last, First, Middle, Suffix";Birthday'
+
+    def run_script(self, *args, cwd=None):
+        return subprocess.run([sys.executable, SCRIPT, *args], cwd=cwd or self.tmp,
+                              capture_output=True, text=True)
+
+    def test_quoted_field_with_commas_is_one_field(self):
+        self.assertEqual(cal.split_header_fields(self.QUOTED_HEADER, ';'),
+                         ['First Name', 'Last, First, Middle, Suffix', 'Birthday'])
+
+    def test_commas_inside_quotes_are_not_separators_for_comma(self):
+        # The quotes are removed, and the ';' outside the quotes is not a separator for ','
+        self.assertEqual(cal.split_header_fields(self.QUOTED_HEADER, ','),
+                         ['First Name;Last, First, Middle, Suffix;Birthday'])
+
+    def test_doubled_quote_inside_quotes_is_literal(self):
+        self.assertEqual(cal.split_header_fields('A;"say ""hi"", now";Birthday', ';'),
+                         ['A', 'say "hi", now', 'Birthday'])
+
+    def test_quote_in_middle_of_field_toggles_quoted_part(self):
+        # The quote opens a quoted part at 'Last"', so the ';' after it is inside quotes
+        self.assertEqual(cal.split_header_fields('First Name;Last"Name;Birthday', ';'),
+                         ['First Name', 'LastName;Birthday'])
+
+    def test_spaces_around_names_are_stripped(self):
+        self.assertEqual(cal.split_header_fields(' First Name ; "Last Name" ;Birthday ', ';'),
+                         ['First Name', 'Last Name', 'Birthday'])
+
+    def test_empty_line_gives_one_empty_field(self):
+        self.assertEqual(cal.split_header_fields('', ';'), [''])
+
+    def test_detect_delimiter_on_quoted_header_gives_semicolon(self):
+        path = self.write_csv('contacts.csv', self.QUOTED_HEADER + '\n')
+        self.assertEqual(cal.detect_delimiter(path), ';')
+
+    def test_detect_delimiter_mid_field_quote_raises_could_not_detect(self):
+        # ';' gives no Birthday column, ',' and tab give one column each
+        path = self.write_csv('contacts.csv', 'First Name;Last"Name;Birthday\n')
+        with self.assertRaises(ValueError) as ctx:
+            cal.detect_delimiter(path)
+        self.assertIn('could not detect the column separator', str(ctx.exception))
+
+    def test_empty_header_line_raises_could_not_detect(self):
+        path = self.write_csv('contacts.csv', '\n')
+        with self.assertRaises(ValueError) as ctx:
+            cal.detect_delimiter(path)
+        self.assertIn('could not detect the column separator', str(ctx.exception))
+
+    def test_missing_expected_columns_for_quoted_header_reports_last_name(self):
+        path = self.write_csv('contacts.csv', self.QUOTED_HEADER + '\nAnn;Lee, Ann, Jo, Sr;1990-05-01\n')
+        self.assertEqual(cal.missing_expected_columns(path, ';'), ['Last Name'])
+
+    def test_cli_quoted_header_reads_birthday_and_warns_for_last_name(self):
+        path = self.write_csv('contacts.csv',
+                              self.QUOTED_HEADER + '\nAnn;Lee, Ann, Jo, Sr;1990-05-01\n')
+        csv_out = os.path.join(self.tmp, 'clean.csv')
+        result = self.run_script('-i', path, '--csv', csv_out)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([line for line in result.stderr.splitlines() if line.startswith('Warning')],
+                         [f"Warning: column 'Last Name' not found in {path}; "
+                          "its values will be empty"])
+        with open(csv_out, encoding='utf-8', newline='') as f:
+            rows = list(csv.reader(f, delimiter=';'))
+        self.assertEqual(rows[1], ['Ann', '', '', '1990-05-01'])
+
+
 if __name__ == '__main__':
     unittest.main()

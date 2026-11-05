@@ -104,20 +104,49 @@ def parse_birthday(birthday):
     birth_date = parse_full_date(birthday)
     return birth_date, birth_date.year
 
+def split_header_fields(line, delimiter):
+    """Return the field names of one header line split on delimiter.
+
+    A double quote toggles "inside quotes" wherever it appears. A delimiter is a
+    separator only outside quotes. Inside quotes, a doubled quote is a literal
+    quote and does not end the quoted part. Quote characters are removed from
+    the names, and spaces around each name are stripped. An empty line gives [''].
+    """
+    fields = []
+    current = []
+    inside_quotes = False
+    i = 0
+    while i < len(line):
+        char = line[i]
+        if char == '"':
+            if inside_quotes and i + 1 < len(line) and line[i + 1] == '"':
+                current.append('"')
+                i += 2
+                continue
+            inside_quotes = not inside_quotes
+        elif char == delimiter and not inside_quotes:
+            fields.append(''.join(current).strip())
+            current = []
+        else:
+            current.append(char)
+        i += 1
+    fields.append(''.join(current).strip())
+    return fields
+
 def detect_delimiter(path):
     """Return the column separator (';', ',' or tab) of the CSV file at path.
 
-    The first line is split with each candidate using the csv module. Only
-    candidates that give more than one column and whose header has a Birthday
-    column (spaces ignored, case-insensitive) are kept, and the one with the
-    most columns is returned. Raises ValueError if no candidate is kept, or if
-    two or more tie for the most columns.
+    The first line is split with each candidate using split_header_fields, which
+    respects double quotes. Only candidates that give more than one column and
+    whose header has a Birthday column (spaces ignored, case-insensitive) are
+    kept, and the one with the most columns is returned. Raises ValueError if no
+    candidate is kept, or if two or more tie for the most columns.
     """
     with open(path, encoding='utf-8-sig', newline='') as f:
         line = f.readline().rstrip('\r\n')
     column_counts = {}
     for candidate in (';', ',', '\t'):
-        fields = next(csv.reader([line], delimiter=candidate))
+        fields = split_header_fields(line, candidate)
         has_birthday = any(field.strip().lower() == 'birthday' for field in fields)
         if len(fields) > 1 and has_birthday:
             column_counts[candidate] = len(fields)
@@ -132,13 +161,14 @@ def detect_delimiter(path):
 def missing_expected_columns(path, delimiter):
     """Return the expected columns that the header of path does not have.
 
-    Only the first line is read. Spaces around each header field are ignored.
+    Only the first line is read, split with split_header_fields. Spaces around
+    each header field are ignored.
     The names are returned in the order of EXPECTED_COLUMNS. Middle Name is not
     expected, so it is never reported.
     """
     with open(path, encoding='utf-8-sig', newline='') as f:
         line = f.readline().rstrip('\r\n')
-    header = {field.strip() for field in next(csv.reader([line], delimiter=delimiter), [])}
+    header = set(split_header_fields(line, delimiter))
     return [name for name in EXPECTED_COLUMNS if name not in header]
 
 def build_birthday_events(csv_file, delimiter=';'):
