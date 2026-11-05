@@ -81,7 +81,7 @@ The separator applies to the contacts input (`-i`) only. The calendar export rea
 ## Calendar (.ics) output
 
 - Lines end with CRLF. Lines longer than 75 octets are folded, without splitting a UTF-8 character.
-- The calendar starts with `BEGIN:VCALENDAR`, `PRODID:-//HZ//HZ//EN`, `VERSION:2.0` and `CALSCALE:GREGORIAN`.
+- The calendar starts with `BEGIN:VCALENDAR`, `PRODID:<value>`, `VERSION:2.0` and `CALSCALE:GREGORIAN`. `<value>` is `-//HZ//HZ//EN` unless `--prodid` is given (see [Command line](#command-line)).
 - Each birthday is one `VEVENT` with:
   - `UID`: stable for a given row, based on the row position and its contents, with a `@contactsToCalendar` suffix.
   - `DTSTAMP`: UTC time of generation, `YYYYMMDDTHHMMSSZ`.
@@ -113,7 +113,7 @@ The separator applies to the contacts input (`-i`) only. The calendar export rea
 ## Command line
 
 ```
-python3 contactsToCalendar.py [-i FILE] [--delimiter VALUE] [--csv [FILE]] [--ics [FILE]] [--calendar FILE]
+python3 contactsToCalendar.py [-i FILE] [--delimiter VALUE] [--csv [FILE]] [--ics [FILE]] [--calendar FILE] [--prodid VALUE]
 ```
 
 | Option | Meaning | Default |
@@ -123,12 +123,18 @@ python3 contactsToCalendar.py [-i FILE] [--delimiter VALUE] [--csv [FILE]] [--ic
 | `--csv [FILE]` | Write the cleaned CSV | `contacts_clean.csv` |
 | `--ics [FILE]` | Write the calendar | `birthdays.ics` |
 | `--calendar FILE` | Exported calendar to compare against. Also writes `birthdays_new.ics` (see [Calendar dedupe](#calendar-dedupe---calendar)) | none |
+| `--prodid VALUE` | `PRODID` line of every calendar file written (`birthdays.ics` and `birthdays_new.ics`) | `-//HZ//HZ//EN` |
 
 - `--csv` and `--ics` may both be given, and each writes its own file.
 - With neither option, the calendar is written (same as `--ics`).
 - `--help` lists all options and exits with code 0.
 - A missing input file prints `Error: input file not found: <name>` to stderr and exits with code 1.
 - A separator that cannot be detected, or is ambiguous, exits with code 1 (see [Column separator](#column-separator)).
+- `--prodid VALUE` is checked before anything is written. A value that is empty (or only spaces) or contains a line break prints `Error: --prodid must not be empty` or `Error: --prodid must not contain line breaks` to stderr, exits with code 1, and writes no output file.
+- Without `--prodid`, the output is the same as before: `PRODID:-//HZ//HZ//EN`.
+- A value starting with `-` must be given as `--prodid=VALUE`, because argparse otherwise reads it as an option.
+- The value is a TEXT value (RFC 5545 section 3.3.11), so it is escaped: a backslash becomes `\\`, a comma `\,`, and a semicolon `\;`. A colon is not escaped. For example, `--prodid "-//Acme, Inc//App//EN"` is written as `PRODID:-//Acme\, Inc//App//EN`.
+- The value should follow the RFC 5545 recommendation (section 3.7.3): a globally unique identifier, such as a formal public identifier `-//Owner//Product//Language`. The script does not check this form; see the README.
 
 ## Calendar dedupe (`--calendar`)
 

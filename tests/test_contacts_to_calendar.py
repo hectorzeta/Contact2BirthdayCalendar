@@ -1256,5 +1256,128 @@ class QuotedHeaderTests(ScratchMixin, unittest.TestCase):
         self.assertEqual(rows[1], ['Ann', '', '', '1990-05-01'])
 
 
+class ProdidOptionTests(ScratchMixin, unittest.TestCase):
+    """The --prodid option sets the PRODID line of the calendar files."""
+
+    DEFAULT_LINE = 'PRODID:-//HZ//HZ//EN'
+
+    def run_script(self, *args, cwd=None):
+        return subprocess.run([sys.executable, SCRIPT, *args], cwd=cwd or self.tmp,
+                              capture_output=True, text=True)
+
+    def prodid_lines(self, path):
+        return [line for line in read_ics_lines(path) if line.startswith('PRODID:')]
+
+    def write_export(self):
+        """Write an empty exported calendar, so --calendar can be run."""
+        path = os.path.join(self.tmp, 'export.ics')
+        cal.write_calendar([], path, '20260101T000000Z')
+        return path
+
+    def test_help_lists_prodid_option(self):
+        result = self.run_script('--help')
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('--prodid', result.stdout)
+
+    def test_write_calendar_defaults_to_hz_prodid(self):
+        out = os.path.join(self.tmp, 'default.ics')
+        cal.write_calendar([], out, '20260101T000000Z')
+        self.assertEqual(self.prodid_lines(out), [self.DEFAULT_LINE])
+
+    def test_write_calendar_uses_given_prodid(self):
+        out = os.path.join(self.tmp, 'custom.ics')
+        cal.write_calendar([], out, '20260101T000000Z', prodid='-//Example Co//Example App//EN')
+        self.assertEqual(self.prodid_lines(out), ['PRODID:-//Example Co//Example App//EN'])
+
+    def test_special_characters_are_escaped_as_text(self):
+        out = os.path.join(self.tmp, 'escaped.ics')
+        cal.write_calendar([], out, '20260101T000000Z', prodid='-//Acme, Inc//App; Pro\\X//EN')
+        self.assertEqual(self.prodid_lines(out), ['PRODID:-//Acme\\, Inc//App\\; Pro\\\\X//EN'])
+
+    def test_colon_is_not_escaped(self):
+        out = os.path.join(self.tmp, 'colon.ics')
+        cal.write_calendar([], out, '20260101T000000Z', prodid='-//Acme//App: Pro//EN')
+        self.assertEqual(self.prodid_lines(out), ['PRODID:-//Acme//App: Pro//EN'])
+
+    def test_escaped_prodid_reads_back_as_given(self):
+        out = os.path.join(self.tmp, 'roundtrip.ics')
+        value = '-//Acme, Inc//App; Pro\\X//EN'
+        cal.write_calendar([], out, '20260101T000000Z', prodid=value)
+        self.assertEqual(read_ics_lines(out)[1], 'PRODID:' + cal.escape_ics_text(value))
+        self.assertEqual(unescape_ics_text(read_ics_lines(out)[1].split(':', 1)[1]), value)
+
+    def test_without_option_output_keeps_default_prodid(self):
+        out = os.path.join(self.tmp, 'birthdays.ics')
+        result = self.run_script('-i', EXAMPLE_CSV, '--ics')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.prodid_lines(out), [self.DEFAULT_LINE])
+
+    def test_option_sets_prodid_in_ics_output(self):
+        out = os.path.join(self.tmp, 'birthdays.ics')
+        result = self.run_script('-i', EXAMPLE_CSV, '--prodid', '-//My Company//My App//EN', '--ics')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.prodid_lines(out), ['PRODID:-//My Company//My App//EN'])
+
+    def test_option_without_dash_prefix_is_accepted(self):
+        out = os.path.join(self.tmp, 'birthdays.ics')
+        result = self.run_script('-i', EXAMPLE_CSV, '--prodid', 'Example App', '--ics')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.prodid_lines(out), ['PRODID:Example App'])
+
+    def test_equals_form_accepts_value_starting_with_dash(self):
+        out = os.path.join(self.tmp, 'birthdays.ics')
+        result = self.run_script('-i', EXAMPLE_CSV, '--prodid=-//HZ//EN', '--ics')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.prodid_lines(out), ['PRODID:-//HZ//EN'])
+
+    def test_option_applies_to_both_calendar_files(self):
+        export = self.write_export()
+        result = self.run_script('-i', EXAMPLE_CSV, '--calendar', export,
+                                 '--prodid', '-//My Company//My App//EN')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.prodid_lines(os.path.join(self.tmp, 'birthdays.ics')),
+                         ['PRODID:-//My Company//My App//EN'])
+        self.assertEqual(self.prodid_lines(os.path.join(self.tmp, 'birthdays_new.ics')),
+                         ['PRODID:-//My Company//My App//EN'])
+
+    def test_option_does_not_change_csv_output(self):
+        csv_out = os.path.join(self.tmp, 'clean.csv')
+        result = self.run_script('-i', EXAMPLE_CSV, '--csv', csv_out,
+                                 '--prodid', '-//My Company//My App//EN')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(read_clean_rows(csv_out), read_clean_rows(EXPECTED_CLEAN_CSV))
+
+    def test_empty_value_exits_one_and_writes_nothing(self):
+        result = self.run_script('-i', EXAMPLE_CSV, '--prodid', '', '--ics')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('--prodid must not be empty', result.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, 'birthdays.ics')))
+
+    def test_blank_value_exits_one_and_writes_nothing(self):
+        result = self.run_script('-i', EXAMPLE_CSV, '--prodid', '   ', '--ics')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('--prodid must not be empty', result.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, 'birthdays.ics')))
+
+    def test_value_with_line_break_exits_one_and_writes_nothing(self):
+        for value in ('-//My Company\n//EN', '-//My Company\r//EN'):
+            with self.subTest(value=value):
+                result = self.run_script('-i', EXAMPLE_CSV, '--prodid', value, '--ics')
+                self.assertEqual(result.returncode, 1)
+                self.assertIn('--prodid must not contain line breaks', result.stderr)
+                self.assertFalse(os.path.exists(os.path.join(self.tmp, 'birthdays.ics')))
+
+    def test_invalid_value_with_calendar_writes_no_calendar_files(self):
+        export = self.write_export()
+        result = self.run_script('-i', EXAMPLE_CSV, '--calendar', export, '--prodid', '')
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, 'birthdays.ics')))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, 'birthdays_new.ics')))
+
+    def test_prodid_error_accepts_normal_values(self):
+        self.assertIsNone(cal.prodid_error('-//HZ//HZ//EN'))
+        self.assertIsNone(cal.prodid_error('-//My Company//My App//EN'))
+
+
 if __name__ == '__main__':
     unittest.main()

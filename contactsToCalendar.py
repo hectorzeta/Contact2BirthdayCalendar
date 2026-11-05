@@ -17,6 +17,9 @@ DEFAULT_CSV_OUTPUT = 'contacts_clean.csv'
 DEFAULT_ICS_OUTPUT = 'birthdays.ics'
 NEW_ICS_OUTPUT = 'birthdays_new.ics'  # written with --calendar; not configurable
 
+# PRODID written to calendar files unless --prodid is given (the value without the "PRODID:" name)
+DEFAULT_PRODID = '-//HZ//HZ//EN'
+
 # Accepted --delimiter values (matched case-insensitively) and the separator each one means
 DELIMITER_CHOICES = {';': ';', ',': ',', 'tab': '\t'}
 
@@ -207,14 +210,23 @@ def build_birthday_events(csv_file, delimiter=';'):
             events.append(BirthdayEvent(uid, birth_date, name, birth_year, f"Birthday: {name}{year_part}"))
     return events
 
-def write_calendar(events, ics_file, dtstamp):
+def prodid_error(value):
+    """Return an error message if value cannot be used as PRODID, otherwise None."""
+    if value.strip() == '':
+        return "--prodid must not be empty"
+    if '\r' in value or '\n' in value:
+        return "--prodid must not contain line breaks"
+    return None
+
+def write_calendar(events, ics_file, dtstamp, prodid=DEFAULT_PRODID):
     """Write BirthdayEvent records to ics_file as an iCalendar file.
 
     dtstamp is the DTSTAMP value (YYYYMMDDTHHMMSSZ) written on every event.
+    prodid is the value of the PRODID line.
     """
     lines = [
         "BEGIN:VCALENDAR",
-        "PRODID:-//HZ//HZ//EN",
+        "PRODID:" + escape_ics_text(prodid),
         "VERSION:2.0",
         "CALSCALE:GREGORIAN",
     ]
@@ -382,16 +394,17 @@ def make_dtstamp():
     """Return the current UTC time in the YYYYMMDDTHHMMSSZ form used for DTSTAMP."""
     return datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
 
-def create_birthday_calendar(csv_file, ics_file, delimiter=None):
+def create_birthday_calendar(csv_file, ics_file, delimiter=None, prodid=DEFAULT_PRODID):
     """Read birthdays from csv_file and write them as recurring events to ics_file.
 
     The column separator is detected from csv_file when delimiter is None.
+    prodid is the value of the PRODID line in ics_file.
     """
     if delimiter is None:
         delimiter = detect_delimiter(csv_file)
     dtstamp = make_dtstamp()
     events = build_birthday_events(csv_file, delimiter=delimiter)
-    write_calendar(events, ics_file, dtstamp)
+    write_calendar(events, ics_file, dtstamp, prodid=prodid)
     print(f"Calendar file created: {ics_file}")
 
 def clean_contacts_csv(csv_file, output_file, delimiter=';'):
@@ -466,6 +479,12 @@ def parse_args(argv=None):
               "when neither --csv nor --ics is given."),
     )
     parser.add_argument(
+        '--prodid', metavar='VALUE',
+        help=("PRODID line of the calendar files, for example \"-//My Company//My App//EN\". "
+              "Must not be empty or contain line breaks. "
+              f"Default: {DEFAULT_PRODID}. A value starting with '-' needs the form --prodid=VALUE"),
+    )
+    parser.add_argument(
         '--calendar', metavar='FILE',
         help=("exported calendar to compare against. Also writes "
               f"{NEW_ICS_OUTPUT} with only the birthdays not already in it, "
@@ -480,6 +499,15 @@ def main(argv=None):
     # With no output option, default to the calendar file
     if args.csv is None and args.ics is None and args.calendar is None:
         args.ics = DEFAULT_ICS_OUTPUT
+
+    # Check the PRODID value before writing anything, so a bad value leaves no output
+    prodid = DEFAULT_PRODID
+    if args.prodid is not None:
+        error = prodid_error(args.prodid)
+        if error is not None:
+            print(f"Error: {error}", file=sys.stderr)
+            return 1
+        prodid = args.prodid
 
     # Read the export before writing anything, so a missing file leaves no output
     export_events = None
@@ -518,14 +546,14 @@ def main(argv=None):
             dtstamp = make_dtstamp()
             events = build_birthday_events(args.input, delimiter=delimiter)
             ics_file = args.ics or DEFAULT_ICS_OUTPUT
-            write_calendar(events, ics_file, dtstamp)
+            write_calendar(events, ics_file, dtstamp, prodid=prodid)
             print(f"Calendar file created: {ics_file}")
             new_events, matched_count = find_new_events(events, export_events)
-            write_calendar(new_events, NEW_ICS_OUTPUT, dtstamp)
+            write_calendar(new_events, NEW_ICS_OUTPUT, dtstamp, prodid=prodid)
             print(f"Calendar file created: {NEW_ICS_OUTPUT} "
                   f"({len(new_events)} new, {matched_count} already in calendar)")
         elif args.ics is not None:
-            create_birthday_calendar(args.input, args.ics, delimiter=delimiter)
+            create_birthday_calendar(args.input, args.ics, delimiter=delimiter, prodid=prodid)
     except FileNotFoundError as err:
         print(f"Error: input file not found: {err.filename}", file=sys.stderr)
         return 1
