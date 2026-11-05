@@ -226,7 +226,7 @@ def write_calendar(events, ics_file, dtstamp, prodid=DEFAULT_PRODID):
     """
     lines = [
         "BEGIN:VCALENDAR",
-        f"PRODID:{prodid}",
+        "PRODID:" + escape_ics_text(prodid),
         "VERSION:2.0",
         "CALSCALE:GREGORIAN",
     ]

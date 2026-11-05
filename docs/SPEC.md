@@ -133,6 +133,8 @@ python3 contactsToCalendar.py [-i FILE] [--delimiter VALUE] [--csv [FILE]] [--ic
 - `--prodid VALUE` is checked before anything is written. A value that is empty (or only spaces) or contains a line break prints `Error: --prodid must not be empty` or `Error: --prodid must not contain line breaks` to stderr, exits with code 1, and writes no output file.
 - Without `--prodid`, the output is the same as before: `PRODID:-//HZ//HZ//EN`.
 - A value starting with `-` must be given as `--prodid=VALUE`, because argparse otherwise reads it as an option.
+- The value is a TEXT value (RFC 5545 section 3.3.11), so it is escaped: a backslash becomes `\\`, a comma `\,`, and a semicolon `\;`. A colon is not escaped. For example, `--prodid "-//Acme, Inc//App//EN"` is written as `PRODID:-//Acme\, Inc//App//EN`.
+- The value should follow the RFC 5545 recommendation (section 3.7.3): a globally unique identifier, such as a formal public identifier `-//Owner//Product//Language`. The script does not check this form; see the README.
 
 ## Calendar dedupe (`--calendar`)
 

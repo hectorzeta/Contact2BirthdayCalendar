@@ -1289,6 +1289,23 @@ class ProdidOptionTests(ScratchMixin, unittest.TestCase):
         cal.write_calendar([], out, '20260101T000000Z', prodid='-//Example Co//Example App//EN')
         self.assertEqual(self.prodid_lines(out), ['PRODID:-//Example Co//Example App//EN'])
 
+    def test_special_characters_are_escaped_as_text(self):
+        out = os.path.join(self.tmp, 'escaped.ics')
+        cal.write_calendar([], out, '20260101T000000Z', prodid='-//Acme, Inc//App; Pro\\X//EN')
+        self.assertEqual(self.prodid_lines(out), ['PRODID:-//Acme\\, Inc//App\\; Pro\\\\X//EN'])
+
+    def test_colon_is_not_escaped(self):
+        out = os.path.join(self.tmp, 'colon.ics')
+        cal.write_calendar([], out, '20260101T000000Z', prodid='-//Acme//App: Pro//EN')
+        self.assertEqual(self.prodid_lines(out), ['PRODID:-//Acme//App: Pro//EN'])
+
+    def test_escaped_prodid_reads_back_as_given(self):
+        out = os.path.join(self.tmp, 'roundtrip.ics')
+        value = '-//Acme, Inc//App; Pro\\X//EN'
+        cal.write_calendar([], out, '20260101T000000Z', prodid=value)
+        self.assertEqual(read_ics_lines(out)[1], 'PRODID:' + cal.escape_ics_text(value))
+        self.assertEqual(unescape_ics_text(read_ics_lines(out)[1].split(':', 1)[1]), value)
+
     def test_without_option_output_keeps_default_prodid(self):
         out = os.path.join(self.tmp, 'birthdays.ics')
         result = self.run_script('-i', EXAMPLE_CSV, '--ics')

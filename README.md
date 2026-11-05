@@ -77,6 +77,20 @@ Run `python3 contactsToCalendar.py --help` for all options:
 | `--calendar FILE` | Exported calendar (`.ics`) to compare against. Also writes `birthdays_new.ics`, the birthdays not already in that calendar. |
 | `--prodid VALUE` | `PRODID` line of the calendar files, for example `--prodid "-//My Company//My App//EN"`. Default `-//HZ//HZ//EN`. Must not be empty or contain line breaks. A value starting with `-` needs the form `--prodid=VALUE`. |
 
+#### PRODID format
+
+`PRODID` (RFC 5545 section 3.7.3) names the program that created the calendar. Per the RFC, it is a TEXT value, and the vendor should make it a globally unique identifier, such as a formal public identifier (FPI, ISO 9070):
+
+```
+-//Owner//Product//Language
+```
+
+- The leading `-` means the owner is not registered with ISO.
+- `Owner` is the organization, and `Product` is the application, for example `-//My Company//My App//EN`.
+- `Language` is a two-letter language code, such as `EN` or `DE`.
+
+The script escapes the value as RFC 5545 requires for TEXT: a backslash becomes `\\`, a comma `\,` and a semicolon `\;`. A colon is not escaped. The script does not check the four-part form; it only rejects an empty value and line breaks. The RFC gives `PRODID:-//ABC Corporation//NONSGML My Product//EN` as an example.
+
 ### Tests
 
 The tests use only the Python standard library. Run them from the project folder:
