@@ -137,18 +137,20 @@ def detect_delimiter(path):
     """Return the column separator (';', ',' or tab) of the CSV file at path.
 
     The first line is split with each candidate using split_header_fields, which
-    respects double quotes. Only candidates that give more than one column and
-    whose header has a Birthday column (spaces ignored, case-insensitive) are
-    kept, and the one with the most columns is returned. Raises ValueError if no
-    candidate is kept, or if two or more tie for the most columns.
+    respects double quotes. Only candidates that give more than one column, whose
+    header has a Birthday column, and whose header has a First Name or Last Name
+    column (spaces around names ignored, case-insensitive) are kept. The one with
+    the most columns is returned. Raises ValueError if no candidate is kept, or if
+    two or more tie for the most columns.
     """
     with open(path, encoding='utf-8-sig', newline='') as f:
         line = f.readline().rstrip('\r\n')
     column_counts = {}
     for candidate in (';', ',', '\t'):
-        fields = split_header_fields(line, candidate)
-        has_birthday = any(field.strip().lower() == 'birthday' for field in fields)
-        if len(fields) > 1 and has_birthday:
+        fields = [field.strip().casefold() for field in split_header_fields(line, candidate)]
+        has_birthday = 'birthday' in fields
+        has_name = 'first name' in fields or 'last name' in fields
+        if len(fields) > 1 and has_birthday and has_name:
             column_counts[candidate] = len(fields)
     if not column_counts:
         raise ValueError(f"could not detect the column separator in {path}; use --delimiter")

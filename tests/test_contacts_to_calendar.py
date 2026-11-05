@@ -875,10 +875,39 @@ class DelimiterDetectionTests(ScratchMixin, unittest.TestCase):
         self.assertIn('could not detect the column separator', str(ctx.exception))
 
     def test_tie_for_most_columns_raises_ambiguous(self):
-        path = self.write_csv('contacts.csv', 'Birthday;Name,Birthday\n')
+        # ';' and ',' both give 3 columns with Birthday and First Name
+        path = self.write_csv('contacts.csv', 'First Name;Birthday;,First Name,Birthday\n')
         with self.assertRaises(ValueError) as ctx:
             cal.detect_delimiter(path)
         self.assertIn('ambiguous column separator', str(ctx.exception))
+
+    def test_birthday_without_name_column_raises_could_not_detect(self):
+        # Both ';' and ',' have Birthday, but neither has First Name or Last Name
+        path = self.write_csv('contacts.csv', 'Birthday;Name,Birthday\n')
+        with self.assertRaises(ValueError) as ctx:
+            cal.detect_delimiter(path)
+        self.assertIn('could not detect the column separator', str(ctx.exception))
+
+    def test_first_name_and_birthday_without_exact_birthday_for_any_separator_raises(self):
+        # ';' gives ['First Name', 'Birthday,Last Name'] and ',' gives ['First Name;Birthday', 'Last Name']:
+        # neither has an exact Birthday column, so no candidate is kept
+        path = self.write_csv('contacts.csv', 'First Name;Birthday,Last Name\n')
+        with self.assertRaises(ValueError) as ctx:
+            cal.detect_delimiter(path)
+        self.assertIn('could not detect the column separator', str(ctx.exception))
+
+    def test_last_name_and_birthday_without_exact_birthday_for_any_separator_raises(self):
+        # ';' gives ['Last Name,Birthday', 'Notes'] and ',' gives ['Last Name', 'Birthday;Notes']
+        path = self.write_csv('contacts.csv', 'Last Name,Birthday;Notes\n')
+        with self.assertRaises(ValueError) as ctx:
+            cal.detect_delimiter(path)
+        self.assertIn('could not detect the column separator', str(ctx.exception))
+
+    def test_stray_separator_in_one_field_still_detects_comma(self):
+        # ',' gives ['First Name', 'Notes;x;y;z', 'Birthday'] (3 columns, exact Birthday and First Name).
+        # ';' gives ['First Name,Notes', 'x', 'y', 'z,Birthday'] with no exact Birthday, so it is not kept.
+        path = self.write_csv('contacts.csv', 'First Name,Notes;x;y;z,Birthday\n')
+        self.assertEqual(cal.detect_delimiter(path), ',')
 
     def test_byte_order_mark_does_not_change_result(self):
         path = self.write_csv('contacts.csv', '﻿First Name;Last Name;Birthday\n')
@@ -911,8 +940,8 @@ class DelimiterDetectionTests(ScratchMixin, unittest.TestCase):
         self.assertIn('could not detect the column separator', str(ctx.exception))
 
     def test_two_separators_with_birthday_tie_raises_ambiguous(self):
-        # ';' gives ['Birthday', 'Name,Birthday'] and ',' gives ['Birthday;Name', 'Birthday']: 2 columns each
-        path = self.write_csv('contacts.csv', 'Birthday;Name,Birthday\n')
+        # ';' gives ['First Name', 'Birthday', ',First Name,Birthday'] and ',' gives ['First Name;Birthday;', 'First Name', 'Birthday']: 3 columns each
+        path = self.write_csv('contacts.csv', 'First Name;Birthday;,First Name,Birthday\n')
         with self.assertRaises(ValueError) as ctx:
             cal.detect_delimiter(path)
         self.assertIn('ambiguous column separator', str(ctx.exception))
@@ -1034,7 +1063,7 @@ class SeparatorTests(ScratchMixin, unittest.TestCase):
         self.assertFalse(os.path.exists(ics_out))
 
     def test_ambiguous_separator_exits_one_and_writes_nothing(self):
-        path = self.write_csv('contacts.csv', 'Birthday;Name,Birthday\nAnn;Lee,1990-05-01\n')
+        path = self.write_csv('contacts.csv', 'First Name;Birthday;,First Name,Birthday\nAnn;Lee,1990-05-01\n')
         csv_out = os.path.join(self.tmp, 'clean.csv')
         ics_out = os.path.join(self.tmp, 'birthdays.ics')
         result = self.run_script('-i', path, '--csv', csv_out, '--ics', ics_out)
@@ -1044,7 +1073,7 @@ class SeparatorTests(ScratchMixin, unittest.TestCase):
         self.assertFalse(os.path.exists(ics_out))
 
     def test_ambiguous_separator_writes_nothing_with_calendar_export(self):
-        path = self.write_csv('contacts.csv', 'Birthday;Name,Birthday\nAnn;Lee,1990-05-01\n')
+        path = self.write_csv('contacts.csv', 'First Name;Birthday;,First Name,Birthday\nAnn;Lee,1990-05-01\n')
         csv_out = os.path.join(self.tmp, 'clean.csv')
         result = self.run_script('-i', path, '--calendar', os.path.join(FIXTURES, 'export.ics'),
                                  '--csv', csv_out)
@@ -1101,6 +1130,17 @@ class MissingColumnWarningTests(ScratchMixin, unittest.TestCase):
                          [f"Warning: column 'Birthday' not found in {path}; "
                           "its values will be empty"])
 
+    def test_delimiter_given_with_missing_name_columns_warns_and_exits_zero(self):
+        path = self.write_csv('contacts.csv', 'Birthday;Notes\n1990-05-01;Friend\n')
+        result = self.run_script('-i', path, '--delimiter', ';',
+                                 '--csv', os.path.join(self.tmp, 'clean.csv'))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.warnings(result),
+                         [f"Warning: column 'First Name' not found in {path}; "
+                          "its values will be empty",
+                          f"Warning: column 'Last Name' not found in {path}; "
+                          "its values will be empty"])
+
     def test_missing_middle_name_prints_no_warning(self):
         path = self.write_csv('contacts.csv',
                               'First Name;Last Name;Birthday\nAnn;Lee;1990-05-01\n')
@@ -1129,7 +1169,8 @@ class MissingColumnWarningTests(ScratchMixin, unittest.TestCase):
 
     def test_warnings_are_printed_in_expected_order(self):
         path = self.write_csv('contacts.csv', 'Middle Name;Birthday\nQ;1990-05-01\n')
-        result = self.run_script('-i', path, '--ics', os.path.join(self.tmp, 'birthdays.ics'))
+        result = self.run_script('-i', path, '--delimiter', ';', '--ics',
+                                 os.path.join(self.tmp, 'birthdays.ics'))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.warnings(result),
                          [f"Warning: column 'First Name' not found in {path}; "

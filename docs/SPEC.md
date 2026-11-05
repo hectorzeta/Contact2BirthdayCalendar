@@ -17,6 +17,7 @@ A standard-library Python tool that turns a semicolon-delimited contacts CSV (Go
   - The header is checked once per run for `First Name`, `Last Name` and `Birthday`. The header is split with the quote rules in [Column separator](#column-separator).
   - For each missing column the message is `Warning: column '<name>' not found in <file>; its values will be empty`.
   - The run continues and the exit code is not changed.
+  - The warning applies whether the separator was detected or given with `--delimiter`.
 
 ## Column separator
 
@@ -31,7 +32,7 @@ The separator applies to the contacts input (`-i`) only. The calendar export rea
    - A doubled quote (`""`) inside quotes is a literal quote and does not end the quoted part.
    - Surrounding quotes are removed from the field names.
    - A quote that is never closed quotes the rest of the line, so the separators after it are not counted. For example, `First Name;Last"Name;Birthday` has no `Birthday` column when split with `;`, and detection fails with the "could not detect" error.
-3. Keep the candidates that give more than one column and whose split header has a column named `Birthday` (spaces around the name are ignored, case-insensitive).
+3. Keep the candidates whose split header has a column named `Birthday` and at least one column named `First Name` or `Last Name` (spaces around the names are ignored, case-insensitive). A candidate must have more than one column to be kept.
 4. If no candidate is kept, stop with `Error: could not detect the column separator in <file>; use --delimiter` on stderr, exit code 1.
 5. If one candidate gives more columns than every other, use it.
 6. If two or more candidates tie for the most columns, stop with `Error: ambiguous column separator in <file>; use --delimiter` on stderr, exit code 1.
